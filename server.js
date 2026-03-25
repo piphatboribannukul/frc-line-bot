@@ -175,8 +175,8 @@ async function checkAlerts() {
     }
   }
 
-  // ล้าง alert ที่เก่ากว่า 1 ชม.
-  const cutoff = Date.now() - 3600000;
+  // ล้าง alert ที่เก่ากว่า 3 ชม.
+  const cutoff = Date.now() - 10800000;
   for (const [k, v] of Object.entries(alertedStations)) {
     if (v < cutoff) delete alertedStations[k];
   }
@@ -847,7 +847,11 @@ function replyHelp(replyToken) {
           makeHelpRow("🔴", "สถานีต่ำ", "ดูสถานีที่ค่าต่ำ"),
           makeHelpRow("🔍", "หา [ชื่อ]", "ค้นหาสถานี เช่น 'หา บางเขน'"),
           { type: "separator" },
-          { type: "text", text: "🔔 Bot จะแจ้งเตือนอัตโนมัติเมื่อค่าคลอรีนต่ำ/สูงผิดปกติ และส่งสรุปรายงานทุกวัน 08:00 / 17:00", size: "xxs", color: "#999999", wrap: true }
+          { type: "text", text: "🔔 การแจ้งเตือนอัตโนมัติ:", weight: "bold", size: "xs", color: "#3a0a20", wrap: true },
+          { type: "text", text: "• ตรวจค่าทุก 10 นาที", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "• แจ้งเตือนเมื่อ FRC < 0.2 หรือ > 2.0 mg/L", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "• สถานีเดิมจะไม่แจ้งซ้ำภายใน 3 ชม.", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "• ส่งสรุปรายงานทุกวัน 08:00 / 17:00", size: "xxs", color: "#999999", wrap: true }
         ]
       },
       footer: {
