@@ -492,8 +492,10 @@ async function replyDailySummary(replyToken) {
     // หาสถานีที่ค่าต่ำสุดวันนี้
     const minReading = allReadings.reduce((a, b) => a.frc < b.frc ? a : b);
 
-    // นับสถานีที่เคยต่ำกว่า threshold วันนี้
+    // นับสถานีที่เคยต่ำ/สูงกว่า threshold วันนี้
     const lowStationCodes = new Set(allReadings.filter(r => r.frc < FRC_MIN).map(r => r.code));
+    const highStationCodes = new Set(allReadings.filter(r => r.frc > 2.0).map(r => r.code));
+    const highCount = allReadings.filter(r => r.frc > 2.0).length;
 
     // ดึงชื่อสถานีจาก API เพื่อแสดงชื่อแทนรหัส
     let stationNames = {};
@@ -514,14 +516,15 @@ async function replyDailySummary(replyToken) {
       makeStatRow("FRC สูงสุดวันนี้", `${maxFrc} mg/L`),
       makeStatRow("FRC ต่ำสุดวันนี้", `${minFrc} mg/L`),
       makeStatRow("ค่าต่ำกว่าเกณฑ์", `${lowCount} ครั้ง (${lowPct}%)`),
-      makeStatRow("สถานีที่เคยต่ำ", `${lowStationCodes.size} สถานี`),
+      makeStatRow("ค่าสูงกว่าเกณฑ์", `${highCount} ครั้ง`),
     ];
 
+    // แสดงสถานีที่เคยต่ำ
     if (lowStationCodes.size > 0) {
       bodyContents.push({ type: "separator", margin: "lg" });
       bodyContents.push({
-        type: "text", text: "🔴 สถานีที่เคยต่ำวันนี้:",
-        weight: "bold", size: "sm", color: "#FF1744", margin: "lg"
+        type: "text", text: `🔴 ต่ำกว่าเกณฑ์ (< ${FRC_MIN} mg/L) — ${lowStationCodes.size} สถานี:`,
+        weight: "bold", size: "sm", color: "#FF1744", margin: "lg", wrap: true
       });
       let count = 0;
       for (const code of lowStationCodes) {
@@ -534,6 +537,41 @@ async function replyDailySummary(replyToken) {
         });
         count++;
       }
+      if (lowStationCodes.size > 5) {
+        bodyContents.push({ type: "text", text: `...และอีก ${lowStationCodes.size - 5} สถานี`, size: "xs", color: "#999999", margin: "sm" });
+      }
+    }
+
+    // แสดงสถานีที่เคยสูง
+    if (highStationCodes.size > 0) {
+      bodyContents.push({ type: "separator", margin: "lg" });
+      bodyContents.push({
+        type: "text", text: `🟠 สูงกว่าเกณฑ์ (> 2.0 mg/L) — ${highStationCodes.size} สถานี:`,
+        weight: "bold", size: "sm", color: "#FF8F00", margin: "lg", wrap: true
+      });
+      let count = 0;
+      for (const code of highStationCodes) {
+        if (count >= 5) break;
+        const name = stationNames[code] || stationNames[code.replace(/-/g, '_')] || code;
+        bodyContents.push({
+          type: "text",
+          text: `• ${name}`,
+          size: "xs", color: "#666666", margin: "sm", wrap: true
+        });
+        count++;
+      }
+      if (highStationCodes.size > 5) {
+        bodyContents.push({ type: "text", text: `...และอีก ${highStationCodes.size - 5} สถานี`, size: "xs", color: "#999999", margin: "sm" });
+      }
+    }
+
+    // ถ้าไม่มีทั้งต่ำและสูง
+    if (lowStationCodes.size === 0 && highStationCodes.size === 0) {
+      bodyContents.push({ type: "separator", margin: "lg" });
+      bodyContents.push({
+        type: "text", text: "✅ ค่าคลอรีนอยู่ในเกณฑ์ปกติตลอดทั้งวัน",
+        weight: "bold", size: "sm", color: "#00C853", margin: "lg", wrap: true
+      });
     }
 
     const flexMsg = {
