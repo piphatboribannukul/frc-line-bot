@@ -312,10 +312,11 @@ function buildDailyReportFlex({ total, good, mid, low, avgFrc, minS, maxS, lowSt
 
   // สร้าง bar chart ด้วย box
   const barTotal = good + mid + low;
-  const barContents = [];
-  if (good > 0) barContents.push({ type: "box", layout: "vertical", flex: good, height: "8px", backgroundColor: "#00C853", cornerRadius: "4px" });
-  if (mid > 0)  barContents.push({ type: "box", layout: "vertical", flex: mid,  height: "8px", backgroundColor: "#FFD600", cornerRadius: "4px" });
-  if (low > 0)  barContents.push({ type: "box", layout: "vertical", flex: low,  height: "8px", backgroundColor: "#FF1744", cornerRadius: "4px" });
+const barContents = [
+    { type: "box", layout: "vertical", flex: good || 1, height: "8px", backgroundColor: "#00C853", cornerRadius: "4px" },
+    { type: "box", layout: "vertical", flex: mid || 1,  height: "8px", backgroundColor: "#FFD600", cornerRadius: "4px" },
+    { type: "box", layout: "vertical", flex: low || 1,  height: "8px", backgroundColor: "#FF1744", cornerRadius: "4px" }
+  ];
 
   const bodyContents = [
     { type: "text", text: `📊 สรุปค่าคลอรีน`, weight: "bold", size: "lg", color: "#1a1a2e" },
@@ -328,7 +329,7 @@ function buildDailyReportFlex({ total, good, mid, low, avgFrc, minS, maxS, lowSt
       margin: "lg",
       height: "8px",
       cornerRadius: "4px",
-      contents: barContents.length ? barContents : [{ type: "filler" }]
+contents: barContents
     },
     // Legend
     {
