@@ -438,32 +438,30 @@ function makeStatRow(label, value) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function handleTextMessage(replyToken, text, userId) {
-  const msg = text.trim().toLowerCase();
+const msg = text.trim();
 
-  // ── คำสั่ง: ค่าคลอรีน / frc / สถานะ
-  if (/^(คลอรีน|ค่าคลอรีน|frc|สถานะ|status|ค่า frc|ค่าน้ำ)$/i.test(msg)) {
+  if (/คลอรีน|frc|สถานะ|status|ค่าน้ำ/i.test(msg)) {
     return replyCurrentStatus(replyToken);
   }
 
-  // ── คำสั่ง: สรุป / รายงาน
-  if (/(สรุป|รายงาน|report|summary)/i.test(msg)) {
+  if (/สรุป|รายงาน|report|summary/i.test(msg)) {
     return replyFullReport(replyToken);
   }
 
-  // ── คำสั่ง: สถานีต่ำ / alert
-  if (/(ต่ำ|สถานีต่ำ|low|alert|แจ้งเตือน|ผิดปกติ)/i.test(msg)) {
+  if (/ต่ำ|low|alert|แจ้งเตือน|ผิดปกติ/i.test(msg)) {
     return replyLowStations(replyToken);
   }
 
-  // ── คำสั่ง: ค้นหาสถานี
   if (/^(ค้น|หา|search) .+/i.test(msg)) {
-    const query = msg.replace(/^(ค้น|หา|search)\s*/i, '');
+    const query = msg.replace(/^(ค้น|หา|search)\s*/i, '').toLowerCase();
     return replySearchStation(replyToken, query);
   }
 
-  // ── คำสั่ง: help
-  if (/^(help|ช่วย|วิธีใช้|คำสั่ง|menu|เมนู|\?)$/i.test(msg)) {
+  if (/help|ช่วย|วิธีใช้|คำสั่ง|menu|เมนู|\?/i.test(msg)) {
     return replyHelp(replyToken);
+  }
+
+  return replyHelp(replyToken);
   }
 
   // ── ไม่ตรงคำสั่ง → แนะนำ
