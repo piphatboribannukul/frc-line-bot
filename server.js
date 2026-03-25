@@ -265,7 +265,7 @@ function buildAlertFlex(alerts) {
         contents: [
           {
             type: "button",
-            action: { type: "uri", label: "🗺️ เปิดแผนที่ Contour", uri: "https://piphatboribannukul.github.io/FRCfirebase/" },
+            action: { type: "uri", label: "🗺️ เปิดแผนที่ Contour", uri: "https://your-domain.com/map" },
             style: "primary",
             color: "#cc0055",
             height: "sm"
@@ -403,7 +403,7 @@ function buildDailyReportFlex({ total, good, mid, low, avgFrc, minS, maxS, lowSt
         contents: [
           {
             type: "button",
-            action: { type: "uri", label: "🗺️ แผนที่", uri: "https://piphatboribannukul.github.io/FRCfirebase/" },
+            action: { type: "uri", label: "🗺️ แผนที่", uri: "https://your-domain.com/map" },
             style: "primary",
             color: "#cc0055",
             height: "sm",
@@ -438,30 +438,32 @@ function makeStatRow(label, value) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function handleTextMessage(replyToken, text, userId) {
-const msg = text.trim();
+  const msg = text.trim();
 
+  // ── คำสั่ง: ค่าคลอรีน / frc / สถานะ
   if (/คลอรีน|frc|สถานะ|status|ค่าน้ำ/i.test(msg)) {
     return replyCurrentStatus(replyToken);
   }
 
+  // ── คำสั่ง: สรุป / รายงาน
   if (/สรุป|รายงาน|report|summary/i.test(msg)) {
     return replyFullReport(replyToken);
   }
 
+  // ── คำสั่ง: สถานีต่ำ / alert
   if (/ต่ำ|low|alert|แจ้งเตือน|ผิดปกติ/i.test(msg)) {
     return replyLowStations(replyToken);
   }
 
+  // ── คำสั่ง: ค้นหาสถานี
   if (/^(ค้น|หา|search) .+/i.test(msg)) {
     const query = msg.replace(/^(ค้น|หา|search)\s*/i, '').toLowerCase();
     return replySearchStation(replyToken, query);
   }
 
-  if (/help|ช่วย|วิธีใช้|คำสั่ง|menu|เมนู|\?/i.test(msg)) {
+  // ── คำสั่ง: help
+  if (/help|ช่วย|วิธีใช้|คำสั่ง|menu|เมนู/i.test(msg)) {
     return replyHelp(replyToken);
-  }
-
-  return replyHelp(replyToken);
   }
 
   // ── ไม่ตรงคำสั่ง → แนะนำ
@@ -758,7 +760,7 @@ app.get('/', (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ตรวจค่าผิดปกติทุก 5 นาที
-cron.schedule('*/10 * * * *', () => {
+cron.schedule('*/5 * * * *', () => {
   console.log(`[Cron] ตรวจ FRC alert — ${new Date().toISOString()}`);
   checkAlerts();
 }, { timezone: 'Asia/Bangkok' });
