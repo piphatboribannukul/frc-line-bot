@@ -310,52 +310,25 @@ function buildDailyReportFlex({ total, good, mid, low, avgFrc, minS, maxS, lowSt
   const pctMid  = ((mid / total) * 100).toFixed(0);
   const pctLow  = ((low / total) * 100).toFixed(0);
 
-  // สร้าง bar chart ด้วย box
-  const barTotal = good + mid + low;
-  const barContents = [
-    { type: "box", layout: "vertical", flex: good || 1, height: "8px", backgroundColor: "#00C853", cornerRadius: "4px" },
-    { type: "box", layout: "vertical", flex: mid || 1,  height: "8px", backgroundColor: "#FFD600", cornerRadius: "4px" },
-    { type: "box", layout: "vertical", flex: low || 1,  height: "8px", backgroundColor: "#FF1744", cornerRadius: "4px" }
-  ];
-
   const bodyContents = [
-    { type: "text", text: `📊 สรุปค่าคลอรีน`, weight: "bold", size: "lg", color: "#1a1a2e" },
+    { type: "text", text: "📊 สรุปค่าคลอรีน", weight: "bold", size: "lg", color: "#1a1a2e" },
     { type: "text", text: `${thaiDate()} เวลา ${thaiTime()}`, size: "xs", color: "#999999", margin: "sm" },
     { type: "separator", margin: "lg" },
-    // Bar chart
     {
       type: "box",
       layout: "horizontal",
       margin: "lg",
-      height: "8px",
-      cornerRadius: "4px",
-      contents: barContents
-    },
-    // Legend
-    {
-      type: "box",
-      layout: "horizontal",
-      margin: "md",
       contents: [
-        { type: "text", text: `🟢 ดี ${good} (${pctGood}%)`, size: "xxs", color: "#00C853", flex: 1 },
-        { type: "text", text: `🟡 ผ่าน ${mid} (${pctMid}%)`, size: "xxs", color: "#B8860B", flex: 1 },
-        { type: "text", text: `🔴 ต่ำ ${low} (${pctLow}%)`, size: "xxs", color: "#FF1744", flex: 1 }
+        { type: "text", text: `🟢 ดี ${good} (${pctGood}%)`, size: "sm", color: "#00C853", flex: 1, align: "center" },
+        { type: "text", text: `🟡 ผ่าน ${mid} (${pctMid}%)`, size: "sm", color: "#B8860B", flex: 1, align: "center" },
+        { type: "text", text: `🔴 ต่ำ ${low} (${pctLow}%)`, size: "sm", color: "#FF1744", flex: 1, align: "center" }
       ]
     },
     { type: "separator", margin: "lg" },
-    // Stats
-    {
-      type: "box",
-      layout: "vertical",
-      margin: "lg",
-      spacing: "sm",
-      contents: [
-        makeStatRow("สถานีทั้งหมด", `${total} สถานี`),
-        makeStatRow("ค่าเฉลี่ย FRC", `${avgFrc} mg/L`),
-        makeStatRow("สูงสุด", `${maxS.frc.toFixed(2)} mg/L — ${maxS.name.substring(0, 20)}`),
-        makeStatRow("ต่ำสุด",  `${minS.frc.toFixed(2)} mg/L — ${minS.name.substring(0, 20)}`),
-      ]
-    }
+    makeStatRow("สถานีทั้งหมด", `${total} สถานี`),
+    makeStatRow("ค่าเฉลี่ย FRC", `${avgFrc} mg/L`),
+    makeStatRow("สูงสุด", `${maxS.frc.toFixed(2)} mg/L`),
+    makeStatRow("ต่ำสุด", `${minS.frc.toFixed(2)} mg/L`)
   ];
 
   // เพิ่มรายชื่อสถานีต่ำ
