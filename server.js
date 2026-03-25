@@ -446,12 +446,12 @@ async function handleTextMessage(replyToken, text, userId) {
   }
 
   // ── คำสั่ง: สรุป / รายงาน
-  if (/^(สรุป|รายงาน|report|สรุปทั้งหมด|summary)$/i.test(msg)) {
+  if (/(สรุป|รายงาน|report|summary)/i.test(msg)) {
     return replyFullReport(replyToken);
   }
 
   // ── คำสั่ง: สถานีต่ำ / alert
-  if (/^(ต่ำ|สถานีต่ำ|low|alert|แจ้งเตือน|ผิดปกติ)$/i.test(msg)) {
+  if (/(ต่ำ|สถานีต่ำ|low|alert|แจ้งเตือน|ผิดปกติ)/i.test(msg)) {
     return replyLowStations(replyToken);
   }
 
