@@ -495,6 +495,16 @@ async function replyDailySummary(replyToken) {
     // นับสถานีที่เคยต่ำกว่า threshold วันนี้
     const lowStationCodes = new Set(allReadings.filter(r => r.frc < FRC_MIN).map(r => r.code));
 
+    // ดึงชื่อสถานีจาก API เพื่อแสดงชื่อแทนรหัส
+    let stationNames = {};
+    try {
+      const sensors = await fetchSensors();
+      for (const s of sensors) {
+        stationNames[String(s.id)] = s.name;
+        stationNames[String(s.id).replace(/\/|\./g, '-')] = s.name;
+      }
+    } catch(e) {}
+
     const bodyContents = [
       { type: "text", text: "📊 สรุปค่าคลอรีนทั้งวัน", weight: "bold", size: "lg", color: "#1a1a2e" },
       { type: "text", text: `${thaiDate()}`, size: "xs", color: "#999999", margin: "sm" },
@@ -516,10 +526,11 @@ async function replyDailySummary(replyToken) {
       let count = 0;
       for (const code of lowStationCodes) {
         if (count >= 5) break;
+        const name = stationNames[code] || stationNames[code.replace(/-/g, '_')] || code;
         bodyContents.push({
           type: "text",
-          text: `• ${code}`,
-          size: "xs", color: "#666666", margin: "sm"
+          text: `• ${name}`,
+          size: "xs", color: "#666666", margin: "sm", wrap: true
         });
         count++;
       }
