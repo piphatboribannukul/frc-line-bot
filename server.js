@@ -265,7 +265,7 @@ function buildAlertFlex(alerts) {
         contents: [
           {
             type: "button",
-            action: { type: "uri", label: "🗺️ เปิดแผนที่ Contour", uri: "https://your-domain.com/map" },
+            action: { type: "uri", label: "🗺️ เปิดแผนที่ Contour", uri: "https://piphatboribannukul.github.io/FRCfirebase/" },
             style: "primary",
             color: "#cc0055",
             height: "sm"
@@ -403,7 +403,7 @@ function buildDailyReportFlex({ total, good, mid, low, avgFrc, minS, maxS, lowSt
         contents: [
           {
             type: "button",
-            action: { type: "uri", label: "🗺️ แผนที่", uri: "https://your-domain.com/map" },
+            action: { type: "uri", label: "🗺️ แผนที่", uri: "https://piphatboribannukul.github.io/FRCfirebase/" },
             style: "primary",
             color: "#cc0055",
             height: "sm",
