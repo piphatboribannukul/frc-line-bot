@@ -760,7 +760,7 @@ app.get('/', (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // ตรวจค่าผิดปกติทุก 5 นาที
-cron.schedule('*/5 * * * *', () => {
+cron.schedule('*/10 * * * *', () => {
   console.log(`[Cron] ตรวจ FRC alert — ${new Date().toISOString()}`);
   checkAlerts();
 }, { timezone: 'Asia/Bangkok' });
