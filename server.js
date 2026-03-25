@@ -265,7 +265,7 @@ function buildAlertFlex(alerts) {
         contents: [
           {
             type: "button",
-            action: { type: "uri", label: "🗺️ เปิดแผนที่ Contour", uri: "https://your-domain.com/map" },
+            action: { type: "uri", label: "🗺️ เปิดแผนที่ Contour", uri: "https://piphatboribannukul.github.io/FRCfirebase/" },
             style: "primary",
             color: "#cc0055",
             height: "sm"
@@ -312,7 +312,7 @@ function buildDailyReportFlex({ total, good, mid, low, avgFrc, minS, maxS, lowSt
 
   // สร้าง bar chart ด้วย box
   const barTotal = good + mid + low;
-const barContents = [
+  const barContents = [
     { type: "box", layout: "vertical", flex: good || 1, height: "8px", backgroundColor: "#00C853", cornerRadius: "4px" },
     { type: "box", layout: "vertical", flex: mid || 1,  height: "8px", backgroundColor: "#FFD600", cornerRadius: "4px" },
     { type: "box", layout: "vertical", flex: low || 1,  height: "8px", backgroundColor: "#FF1744", cornerRadius: "4px" }
@@ -329,7 +329,7 @@ const barContents = [
       margin: "lg",
       height: "8px",
       cornerRadius: "4px",
-contents: barContents
+      contents: barContents
     },
     // Legend
     {
@@ -404,7 +404,7 @@ contents: barContents
         contents: [
           {
             type: "button",
-            action: { type: "uri", label: "🗺️ แผนที่", uri: "https://your-domain.com/map" },
+            action: { type: "uri", label: "🗺️ แผนที่", uri: "https://piphatboribannukul.github.io/FRCfirebase/" },
             style: "primary",
             color: "#cc0055",
             height: "sm",
@@ -602,7 +602,7 @@ async function replyLowStations(replyToken) {
       header: {
         type: "box", layout: "vertical", backgroundColor: "#FF1744", paddingAll: "14px",
         contents: [
-          { type: "text", text: `🔴 สถานี FRC ต่ำ (${lowList.length} สถานี)`, color: "#fff", weight: "bold", size: "md" },
+          { type: "text", text: `🔴 สถานี FRC ต่ำ (${lowList.length} สถานี)`, color: "#ffffff", weight: "bold", size: "md" },
           { type: "text", text: `เวลา ${thaiTime()} น.`, color: "#ffcccc", size: "xs", margin: "sm" }
         ]
       },
@@ -656,7 +656,7 @@ async function replySearchStation(replyToken, query) {
       header: {
         type: "box", layout: "vertical", backgroundColor: "#3a0a20", paddingAll: "14px",
         contents: [
-          { type: "text", text: `🔍 ผลค้นหา "${query}"`, color: "#fff", weight: "bold", size: "md", wrap: true },
+          { type: "text", text: `🔍 ผลค้นหา "${query}"`, color: "#ffffff", weight: "bold", size: "md", wrap: true },
           { type: "text", text: `พบ ${results.length} สถานี`, color: "#ffccdd", size: "xs", margin: "sm" }
         ]
       },
@@ -675,7 +675,7 @@ function replyHelp(replyToken) {
       header: {
         type: "box", layout: "vertical", backgroundColor: "#3a0a20", paddingAll: "16px",
         contents: [
-          { type: "text", text: "💧 FRC Chlorine Bot", color: "#fff", weight: "bold", size: "lg" },
+          { type: "text", text: "💧 FRC Chlorine Bot", color: "#ffffff", weight: "bold", size: "lg" },
           { type: "text", text: "ระบบติดตามค่าคลอรีนอัตโนมัติ", color: "#ffccdd", size: "xs", margin: "sm" }
         ]
       },
@@ -779,6 +779,6 @@ cron.schedule('0 8,17 * * *', () => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 FRC Chlorine LINE Bot running on port ${PORT}`);
-  console.log(`   Webhook URL: https://your-domain.com/webhook`);
+  console.log(`   Webhook URL: https://frc-line-bot-production.up.railway.app/webhook`);
   console.log(`   LINE Token: ${LINE_TOKEN.substring(0, 10)}...`);
 });
