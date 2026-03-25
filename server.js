@@ -419,6 +419,11 @@ async function handleTextMessage(replyToken, text, userId) {
     return replyCurrentStatus(replyToken);
   }
 
+  // ── คำสั่ง: สรุปวัน / สรุปทั้งวัน / daily
+  if (/สรุปวัน|สรุปทั้งวัน|daily|ประจำวัน/i.test(msg)) {
+    return replyDailySummary(replyToken);
+  }
+
   // ── คำสั่ง: สรุป / รายงาน
   if (/สรุป|รายงาน|report|summary/i.test(msg)) {
     return replyFullReport(replyToken);
@@ -442,6 +447,137 @@ async function handleTextMessage(replyToken, text, userId) {
 
   // ── ไม่ตรงคำสั่ง → แนะนำ
   return replyHelp(replyToken);
+}
+
+async function replyDailySummary(replyToken) {
+  try {
+    // ดึงข้อมูลประวัติจาก Firebase /history
+    const snap = await get(ref(db, 'history'));
+    if (!snap.exists()) {
+      return lineReply(replyToken, [{ type: 'text', text: '❌ ไม่พบข้อมูลประวัติ' }]);
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayMs = today.getTime();
+
+    let allReadings = [];
+    let stationCount = 0;
+
+    snap.forEach(codeSnap => {
+      const code = codeSnap.key;
+      if (code.startsWith('_')) return; // skip metadata keys
+      stationCount++;
+      codeSnap.forEach(ptSnap => {
+        const p = ptSnap.val();
+        if (p && p.ts >= todayMs && p.frc != null) {
+          allReadings.push({ code, frc: p.frc, ts: p.ts });
+        }
+      });
+    });
+
+    if (allReadings.length === 0) {
+      // ถ้าไม่มีข้อมูลวันนี้ ลองดึงปัจจุบันแทน
+      return lineReply(replyToken, [{ type: 'text', text: '📊 ยังไม่มีข้อมูลสะสมวันนี้\nลองพิมพ์ "สรุป" เพื่อดูค่าปัจจุบันแทนครับ' }]);
+    }
+
+    const frcValues = allReadings.map(r => r.frc);
+    const avgFrc = (frcValues.reduce((a, b) => a + b, 0) / frcValues.length).toFixed(2);
+    const minFrc = Math.min(...frcValues).toFixed(2);
+    const maxFrc = Math.max(...frcValues).toFixed(2);
+    const totalReadings = allReadings.length;
+    const lowCount = allReadings.filter(r => r.frc < FRC_MIN).length;
+    const lowPct = ((lowCount / totalReadings) * 100).toFixed(0);
+
+    // หาสถานีที่ค่าต่ำสุดวันนี้
+    const minReading = allReadings.reduce((a, b) => a.frc < b.frc ? a : b);
+
+    // นับสถานีที่เคยต่ำกว่า threshold วันนี้
+    const lowStationCodes = new Set(allReadings.filter(r => r.frc < FRC_MIN).map(r => r.code));
+
+    const bodyContents = [
+      { type: "text", text: "📊 สรุปค่าคลอรีนทั้งวัน", weight: "bold", size: "lg", color: "#1a1a2e" },
+      { type: "text", text: `${thaiDate()}`, size: "xs", color: "#999999", margin: "sm" },
+      { type: "separator", margin: "lg" },
+      makeStatRow("จำนวนค่าที่เก็บได้", `${totalReadings} ค่า`),
+      makeStatRow("FRC เฉลี่ยทั้งวัน", `${avgFrc} mg/L`),
+      makeStatRow("FRC สูงสุดวันนี้", `${maxFrc} mg/L`),
+      makeStatRow("FRC ต่ำสุดวันนี้", `${minFrc} mg/L`),
+      makeStatRow("ค่าต่ำกว่าเกณฑ์", `${lowCount} ครั้ง (${lowPct}%)`),
+      makeStatRow("สถานีที่เคยต่ำ", `${lowStationCodes.size} สถานี`),
+    ];
+
+    if (lowStationCodes.size > 0) {
+      bodyContents.push({ type: "separator", margin: "lg" });
+      bodyContents.push({
+        type: "text", text: "🔴 สถานีที่เคยต่ำวันนี้:",
+        weight: "bold", size: "sm", color: "#FF1744", margin: "lg"
+      });
+      let count = 0;
+      for (const code of lowStationCodes) {
+        if (count >= 5) break;
+        bodyContents.push({
+          type: "text",
+          text: `• ${code}`,
+          size: "xs", color: "#666666", margin: "sm"
+        });
+        count++;
+      }
+    }
+
+    const flexMsg = {
+      type: "flex",
+      altText: `📊 สรุปทั้งวัน — เฉลี่ย ${avgFrc} mg/L, ต่ำสุด ${minFrc}`,
+      contents: {
+        type: "bubble",
+        size: "mega",
+        header: {
+          type: "box",
+          layout: "vertical",
+          backgroundColor: "#1a0a40",
+          paddingAll: "16px",
+          contents: [
+            { type: "text", text: "📋 สรุปคลอรีนทั้งวัน", color: "#ffffff", weight: "bold", size: "lg" },
+            { type: "text", text: "FRC Daily Summary", color: "#ccccff", size: "xs", margin: "sm" }
+          ]
+        },
+        body: {
+          type: "box",
+          layout: "vertical",
+          paddingAll: "16px",
+          contents: bodyContents
+        },
+        footer: {
+          type: "box",
+          layout: "horizontal",
+          paddingAll: "12px",
+          spacing: "md",
+          contents: [
+            {
+              type: "button",
+              action: { type: "message", label: "💧 ค่าปัจจุบัน", text: "คลอรีน" },
+              style: "primary",
+              color: "#cc0055",
+              height: "sm",
+              flex: 1
+            },
+            {
+              type: "button",
+              action: { type: "uri", label: "🗺️ แผนที่", uri: "https://piphatboribannukul.github.io/FRCfirebase/" },
+              style: "secondary",
+              height: "sm",
+              flex: 1
+            }
+          ]
+        }
+      }
+    };
+
+    return lineReply(replyToken, [flexMsg]);
+  } catch (err) {
+    console.error('[Daily Summary Error]', err.message);
+    return lineReply(replyToken, [{ type: 'text', text: '❌ ไม่สามารถดึงข้อมูลประวัติได้: ' + err.message }]);
+  }
 }
 
 async function replyCurrentStatus(replyToken) {
@@ -658,6 +794,7 @@ function replyHelp(replyToken) {
           { type: "text", text: "📖 คำสั่งที่ใช้ได้:", weight: "bold", size: "md", color: "#3a0a20" },
           makeHelpRow("💧", "คลอรีน", "ดูค่า FRC ปัจจุบัน"),
           makeHelpRow("📋", "สรุป", "รายงานสรุปทุกสถานี"),
+          makeHelpRow("📊", "สรุปวัน", "สรุปค่าคลอรีนทั้งวัน"),
           makeHelpRow("🔴", "สถานีต่ำ", "ดูสถานีที่ค่าต่ำ"),
           makeHelpRow("🔍", "หา [ชื่อ]", "ค้นหาสถานี เช่น 'หา บางเขน'"),
           { type: "separator" },
