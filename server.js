@@ -467,6 +467,17 @@ async function handleTextMessage(replyToken, text, userId) {
     return replyLowStations(replyToken);
   }
 
+  // ── คำสั่ง: ดูรายละเอียดแต่ละ type
+  if (/ดูสูบส่ง|สูบส่ง|send/i.test(msg)) {
+    return replyTypeDetail(replyToken, 'send');
+  }
+  if (/ดูสูบจ่าย|สูบจ่าย|ผลิตน้ำ|plant/i.test(msg)) {
+    return replyTypeDetail(replyToken, 'plant');
+  }
+  if (/ดู monitor|ดูมอนิเตอร์|monitor/i.test(msg)) {
+    return replyTypeDetail(replyToken, 'monitor');
+  }
+
   // ── คำสั่ง: ค้นหาสถานี (พร้อม link flyTo)
   if (/^(ค้น|หา|search) .+/i.test(msg)) {
     const query = msg.replace(/^(ค้น|หา|search)\s*/i, '').toLowerCase();
@@ -705,50 +716,211 @@ async function replyCurrentStatus(replyToken) {
     return lineReply(replyToken, [{ type: 'text', text: '❌ ไม่สามารถดึงข้อมูลได้ กรุณาลองใหม่' }]);
   }
 
+  // แยกตาม type
+  const sendStations = sensors.filter(s => {
+    const sid = String(s.id).toUpperCase();
+    return sid.startsWith('SP') && !['SP06','SP07','SP08','SP09','SP10'].includes(sid);
+  });
+  const plantStations = sensors.filter(s => s.type === 'plant' || (s.type === 'pump' && String(s.id).toUpperCase().startsWith('SW')));
+  const monitorStations = sensors.filter(s => s.type === 'monitor');
+
+  // นับสถานะตาม threshold ของแต่ละ type
+  function countByStatus(list, thresholdType) {
+    let ok = 0, watch = 0, low = 0, high = 0;
+    for (const s of list) {
+      const t = getThreshold(thresholdType, s.id);
+      if (s.frc > t.high) high++;
+      else if (s.frc >= t.watch) ok++;
+      else if (s.frc >= t.low) watch++;
+      else low++;
+    }
+    return { ok, watch, low, high, total: list.length };
+  }
+
+  const sendCount = countByStatus(sendStations, 'pump');
+  const plantCount = countByStatus(plantStations, 'plant');
+  const monCount = countByStatus(monitorStations, 'monitor');
+
   const total = sensors.length;
-  const good  = sensors.filter(s => s.frc >= FRC_HI).length;
-  const mid   = sensors.filter(s => s.frc >= FRC_MIN && s.frc < FRC_HI).length;
-  const low   = sensors.filter(s => s.frc < FRC_MIN).length;
   const avgFrc = (sensors.reduce((a, s) => a + s.frc, 0) / total).toFixed(2);
+  const allLow = sendCount.low + plantCount.low + monCount.low;
+  const allWatch = sendCount.watch + plantCount.watch + monCount.watch;
+  const allHigh = sendCount.high + plantCount.high + monCount.high;
+  const allOk = sendCount.ok + plantCount.ok + monCount.ok;
+
+  function makeTypeRow(emoji, label, count) {
+    const statusParts = [];
+    if (count.ok > 0) statusParts.push(`🟢${count.ok}`);
+    if (count.watch > 0) statusParts.push(`🟡${count.watch}`);
+    if (count.low > 0) statusParts.push(`🔴${count.low}`);
+    if (count.high > 0) statusParts.push(`🟠${count.high}`);
+    return {
+      type: "box", layout: "horizontal", margin: "md", spacing: "sm",
+      contents: [
+        { type: "text", text: `${emoji} ${label}`, size: "xs", color: "#1a1a2e", flex: 4, weight: "bold" },
+        { type: "text", text: statusParts.join(' '), size: "xs", color: "#666666", flex: 4, align: "end" },
+        { type: "text", text: `${count.total}`, size: "xs", color: "#999999", flex: 1, align: "end" }
+      ]
+    };
+  }
 
   const flexMsg = {
     type: "flex",
-    altText: `ค่า FRC: เฉลี่ย ${avgFrc} mg/L — ดี ${good} / ผ่าน ${mid} / ต่ำ ${low}`,
+    altText: `💧 FRC เฉลี่ย ${avgFrc} mg/L — ดี ${allOk} / เฝ้าระวัง ${allWatch} / ต่ำ ${allLow} / สูง ${allHigh}`,
     contents: {
       type: "bubble",
-      size: "kilo",
-      body: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "16px",
+      size: "mega",
+      header: {
+        type: "box", layout: "vertical", backgroundColor: "#3a0a20", paddingAll: "16px",
         contents: [
-          { type: "text", text: "💧 ค่าคลอรีนตอนนี้", weight: "bold", size: "md", color: "#3a0a20" },
-          { type: "text", text: `${thaiTime()} น.`, size: "xs", color: "#999999", margin: "sm" },
-          { type: "separator", margin: "md" },
+          { type: "text", text: "💧 คลอรีนอิสระคงเหลือ", color: "#ffffff", weight: "bold", size: "lg" },
+          { type: "text", text: `Free Residual Chlorine — ${thaiTime()} น.`, color: "#ffccdd", size: "xs", margin: "sm" }
+        ]
+      },
+      body: {
+        type: "box", layout: "vertical", paddingAll: "16px",
+        contents: [
+          // สรุปภาพรวม
           {
-            type: "box", layout: "horizontal", margin: "lg", spacing: "md",
+            type: "box", layout: "horizontal", margin: "md", spacing: "sm",
             contents: [
-              makeCountBox("🟢 ดี", good, "#00C853"),
-              makeCountBox("🟡 ผ่าน", mid, "#FFD600"),
-              makeCountBox("🔴 ต่ำ", low, "#FF1744"),
+              makeCountBox("🟢 ดี", allOk, "#00C853"),
+              makeCountBox("🟡 เฝ้าระวัง", allWatch, "#FFD600"),
+              makeCountBox("🔴 ต่ำ", allLow, "#FF1744"),
+              makeCountBox("🟠 สูง", allHigh, "#FF8F00"),
             ]
           },
-          { type: "separator", margin: "md" },
-          makeStatRow("สถานีทั้งหมด", `${total}`),
+          { type: "separator", margin: "lg" },
+          makeStatRow("สถานีทั้งหมด", `${total} สถานี`),
           makeStatRow("FRC เฉลี่ย", `${avgFrc} mg/L`),
+          { type: "separator", margin: "lg" },
+          // แยกตาม type
+          { type: "text", text: "📊 แยกตามประเภทสถานี", weight: "bold", size: "sm", color: "#3a0a20", margin: "md" },
+          {
+            type: "box", layout: "horizontal", margin: "sm",
+            contents: [
+              { type: "text", text: "ประเภท", size: "xxs", color: "#999999", flex: 4, weight: "bold" },
+              { type: "text", text: "สถานะ", size: "xxs", color: "#999999", flex: 4, align: "end", weight: "bold" },
+              { type: "text", text: "รวม", size: "xxs", color: "#999999", flex: 1, align: "end", weight: "bold" }
+            ]
+          },
+          makeTypeRow("🏭", "สูบส่ง", sendCount),
+          makeTypeRow("💧", "ผลิตน้ำ/สูบจ่าย", plantCount),
+          makeTypeRow("📡", "Monitor", monCount),
         ]
       },
       footer: {
-        type: "box", layout: "horizontal", paddingAll: "10px", spacing: "sm",
+        type: "box", layout: "vertical", paddingAll: "10px", spacing: "sm",
         contents: [
-          { type: "button", action: { type: "message", label: "📋 สรุปทั้งหมด", text: "สรุปทั้งหมด" }, height: "sm", style: "primary", color: "#cc0055", flex: 1 },
-          { type: "button", action: { type: "message", label: "🔴 สถานีต่ำ", text: "สถานีต่ำ" }, height: "sm", style: "secondary", flex: 1 }
+          {
+            type: "box", layout: "horizontal", spacing: "sm",
+            contents: [
+              { type: "button", action: { type: "message", label: "🏭 สูบส่ง", text: "ดูสูบส่ง" }, height: "sm", style: "primary", color: "#cc0055", flex: 1 },
+              { type: "button", action: { type: "message", label: "💧 สูบจ่าย", text: "ดูสูบจ่าย" }, height: "sm", style: "primary", color: "#4488ff", flex: 1 },
+              { type: "button", action: { type: "message", label: "📡 Monitor", text: "ดู monitor" }, height: "sm", style: "primary", color: "#FF8F00", flex: 1 },
+            ]
+          },
+          {
+            type: "box", layout: "horizontal", spacing: "sm",
+            contents: [
+              { type: "button", action: { type: "uri", label: "🗺️ แผนที่ Contour", uri: "https://piphatboribannukul.github.io/FRCfirebase/" }, height: "sm", style: "secondary", flex: 1 },
+            ]
+          }
         ]
       }
     }
   };
 
   return lineReply(replyToken, [flexMsg]);
+}
+
+// ── ดูรายละเอียดแต่ละ type ──
+async function replyTypeDetail(replyToken, typeFilter) {
+  const sensors = await fetchSensors();
+  if (!sensors.length) {
+    return lineReply(replyToken, [{ type: 'text', text: '❌ ไม่สามารถดึงข้อมูลได้' }]);
+  }
+
+  let filtered, title, thresholdType, headerColor;
+  if (typeFilter === 'send') {
+    filtered = sensors.filter(s => {
+      const sid = String(s.id).toUpperCase();
+      return sid.startsWith('SP') && !['SP06','SP07','SP08','SP09','SP10'].includes(sid);
+    });
+    title = '🏭 สถานีสูบส่งน้ำ';
+    thresholdType = 'pump';
+    headerColor = '#cc0055';
+  } else if (typeFilter === 'plant') {
+    filtered = sensors.filter(s => s.type === 'plant' || (s.type === 'pump' && String(s.id).toUpperCase().startsWith('SW')));
+    title = '💧 โรงผลิตน้ำ / สูบจ่าย';
+    thresholdType = 'plant';
+    headerColor = '#4488ff';
+  } else {
+    filtered = sensors.filter(s => s.type === 'monitor');
+    title = '📡 สถานี Monitor';
+    thresholdType = 'monitor';
+    headerColor = '#FF8F00';
+  }
+
+  // เรียงตาม FRC จากน้อยไปมาก
+  filtered.sort((a, b) => a.frc - b.frc);
+  const t = getThreshold(thresholdType);
+  const avg = filtered.length ? (filtered.reduce((a, s) => a + s.frc, 0) / filtered.length).toFixed(2) : '0';
+
+  const rows = filtered.slice(0, 10).map(s => {
+    const st = frcStatus(s.frc, s.type, s.id);
+    return {
+      type: "box", layout: "horizontal", margin: "md",
+      contents: [
+        { type: "text", text: st.emoji, size: "sm", flex: 0 },
+        { type: "text", text: s.name.substring(0, 22), size: "xs", color: "#1a1a2e", flex: 5, margin: "sm", wrap: true },
+        { type: "text", text: `${s.frc.toFixed(2)}`, size: "xs", color: st.color, flex: 2, align: "end", weight: "bold" },
+      ]
+    };
+  });
+
+  // เพิ่ม header info
+  rows.unshift(
+    { type: "text", text: `เกณฑ์: ต่ำ < ${t.low} | เฝ้าระวัง < ${t.watch} | สูง > ${t.high}`, size: "xxs", color: "#999999", margin: "sm", wrap: true },
+    makeStatRow("จำนวนสถานี", `${filtered.length}`),
+    makeStatRow("FRC เฉลี่ย", `${avg} mg/L`),
+    { type: "separator", margin: "md" },
+    {
+      type: "box", layout: "horizontal", margin: "md",
+      contents: [
+        { type: "text", text: "", size: "xs", flex: 0 },
+        { type: "text", text: "ชื่อสถานี", size: "xxs", color: "#999999", flex: 5, margin: "sm", weight: "bold" },
+        { type: "text", text: "mg/L", size: "xxs", color: "#999999", flex: 2, align: "end", weight: "bold" },
+      ]
+    }
+  );
+
+  if (filtered.length > 10) {
+    rows.push({ type: "text", text: `...และอีก ${filtered.length - 10} สถานี`, size: "xxs", color: "#999999", margin: "md", align: "center" });
+  }
+
+  return lineReply(replyToken, [{
+    type: "flex",
+    altText: `${title} — ${filtered.length} สถานี, เฉลี่ย ${avg} mg/L`,
+    contents: {
+      type: "bubble", size: "mega",
+      header: {
+        type: "box", layout: "vertical", backgroundColor: headerColor, paddingAll: "14px",
+        contents: [
+          { type: "text", text: title, color: "#ffffff", weight: "bold", size: "md" },
+          { type: "text", text: `${thaiTime()} น. — เรียงจากต่ำสุด`, color: "#ffffff", size: "xxs", margin: "sm" }
+        ]
+      },
+      body: { type: "box", layout: "vertical", paddingAll: "14px", contents: rows },
+      footer: {
+        type: "box", layout: "horizontal", paddingAll: "10px", spacing: "sm",
+        contents: [
+          { type: "button", action: { type: "message", label: "💧 กลับหน้าหลัก", text: "คลอรีน" }, height: "sm", style: "secondary", flex: 1 },
+          { type: "button", action: { type: "uri", label: "🗺️ แผนที่", uri: "https://piphatboribannukul.github.io/FRCfirebase/" }, height: "sm", style: "primary", color: headerColor, flex: 1 },
+        ]
+      }
+    }
+  }]);
 }
 
 function makeCountBox(label, count, color) {
