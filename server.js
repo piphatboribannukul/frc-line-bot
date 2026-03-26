@@ -50,6 +50,8 @@ const FRC_HI  = 1.0;
 let NOTIFY_TARGETS = new Set();
 // เก็บ state ว่าแจ้งเตือนไปแล้วหรือยัง (ป้องกันส่งซ้ำ)
 let alertedStations = {};
+// เก็บ state ว่า user กำลังรอพิมพ์ชื่อสถานที่
+let waitingPlaceFrom = {};
 
 // ─── Firebase Config (ตรงกับ HTML ต้นฉบับ) ───────────────────────────────────
 const firebaseConfig = {
@@ -480,6 +482,32 @@ async function handleTextMessage(replyToken, text, userId) {
   if (/^(ค้นหาสถานที่|ไปที่|goto|flyto|นำทาง) .+/i.test(msg)) {
     const place = msg.replace(/^(ค้นหาสถานที่|ไปที่|goto|flyto|นำทาง)\s*/i, '');
     return replyFlyToPlace(replyToken, place);
+  }
+
+  // ── คำสั่ง: ไปที่ (ไม่มีชื่อสถานที่) → ถามก่อน
+  if (/^(ค้นหาสถานที่|ไปที่|goto|flyto|นำทาง)$/i.test(msg)) {
+    waitingPlaceFrom[userId] = true;
+    return lineReply(replyToken, [{
+      type: "flex",
+      altText: "🔍 พิมพ์ชื่อสถานที่ที่ต้องการ",
+      contents: {
+        type: "bubble", size: "kilo",
+        body: {
+          type: "box", layout: "vertical", paddingAll: "20px", alignItems: "center",
+          contents: [
+            { type: "text", text: "🔍", size: "3xl", align: "center" },
+            { type: "text", text: "ค้นหาสถานที่", weight: "bold", size: "md", align: "center", margin: "lg", color: "#3a0a20" },
+            { type: "text", text: "พิมพ์ชื่อสถานที่ที่ต้องการ\nเช่น สถานีกลางบางซื่อ, สยาม\nBot จะพาไปในแผนที่ Contour", size: "xs", color: "#999999", align: "center", margin: "md", wrap: true }
+          ]
+        }
+      }
+    }]);
+  }
+
+  // ── ถ้ากำลังรอชื่อสถานที่ → flyTo ไปเลย
+  if (waitingPlaceFrom[userId]) {
+    delete waitingPlaceFrom[userId];
+    return replyFlyToPlace(replyToken, msg);
   }
 
   // ── คำสั่ง: help
