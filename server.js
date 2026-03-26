@@ -775,23 +775,21 @@ async function replyDailyTable(replyToken) {
     const rows = [];
     // Header row
     rows.push({
-      type: "box", layout: "horizontal", paddingAll: "6px",
-      backgroundColor: "#f0e8f0",
+      type: "box", layout: "horizontal", margin: "sm",
       contents: [
         { type: "text", text: "No.", size: "xxs", color: "#999999", flex: 1, weight: "bold" },
         { type: "text", text: "สถานี", size: "xxs", color: "#999999", flex: 6, weight: "bold" },
         { type: "text", text: "FRC", size: "xxs", color: "#999999", flex: 2, align: "end", weight: "bold" }
       ]
     });
+    rows.push({ type: "separator", margin: "sm" });
 
     for (let i = 0; i < list.length; i++) {
       const s = list[i];
       const st = frcStatus(s.frc, s.type, s.id);
       const shortName = s.name.length > 18 ? s.name.substring(0, 18) + '..' : s.name;
-      const bgColor = i % 2 === 0 ? '#ffffff' : '#faf8fa';
       rows.push({
-        type: "box", layout: "horizontal", paddingAll: "4px 6px",
-        backgroundColor: bgColor,
+        type: "box", layout: "horizontal", margin: "sm",
         contents: [
           { type: "text", text: `${i + 1}`, size: "xxs", color: "#bbbbbb", flex: 1 },
           { type: "text", text: shortName, size: "xxs", color: "#1a1a2e", flex: 6 },
@@ -802,11 +800,11 @@ async function replyDailyTable(replyToken) {
 
     // เฉลี่ย
     const avg = (list.reduce((a, s) => a + s.frc, 0) / list.length).toFixed(2);
+    rows.push({ type: "separator", margin: "sm" });
     rows.push({
-      type: "box", layout: "horizontal", paddingAll: "6px",
-      backgroundColor: "#f0e8f0",
+      type: "box", layout: "horizontal", margin: "sm",
       contents: [
-        { type: "text", text: "", size: "xxs", flex: 1 },
+        { type: "text", text: " ", size: "xxs", flex: 1 },
         { type: "text", text: "เฉลี่ย", size: "xxs", color: "#3a0a20", flex: 6, weight: "bold" },
         { type: "text", text: `${avg}`, size: "xxs", color: "#3a0a20", flex: 2, align: "end", weight: "bold" }
       ]
@@ -821,7 +819,7 @@ async function replyDailyTable(replyToken) {
           { type: "text", text: `${list.length} สถานี | ${thaiDate()}`, color: "#ffffff", size: "xxs", margin: "xs" }
         ]
       },
-      body: { type: "box", layout: "vertical", paddingAll: "4px", spacing: "none", contents: rows }
+      body: { type: "box", layout: "vertical", paddingAll: "10px", spacing: "none", contents: rows }
     });
   }
 
