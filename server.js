@@ -459,6 +459,11 @@ async function handleTextMessage(replyToken, text, userId) {
     return replyCurrentStatus(replyToken);
   }
 
+  // ── คำสั่ง: ตารางวัน / ตาราง / table
+  if (/ตารางวัน|ตาราง|table/i.test(msg)) {
+    return replyDailyTable(replyToken);
+  }
+
   // ── คำสั่ง: สรุปวัน / สรุปทั้งวัน / daily
   if (/สรุปวัน|สรุปทั้งวัน|daily|ประจำวัน/i.test(msg)) {
     return replyDailySummary(replyToken);
@@ -712,6 +717,169 @@ async function replyDailySummary(replyToken) {
     console.error('[Daily Summary Error]', err.message);
     return lineReply(replyToken, [{ type: 'text', text: '❌ ไม่สามารถดึงข้อมูลประวัติได้: ' + err.message }]);
   }
+}
+
+// ── ตารางสรุปค่า FRC ประจำวัน แยกตามเขต (เหมือนตารางผู้บริหาร) ──
+async function replyDailyTable(replyToken) {
+  const sensors = await fetchSensors();
+  if (!sensors.length) {
+    return lineReply(replyToken, [{ type: 'text', text: '❌ ไม่สามารถดึงข้อมูลได้' }]);
+  }
+
+  // จัดกลุ่มสถานีตามเขตรับน้ำ (zone)
+  const ZONE_GROUPS = [
+    { key: 'TR1', title: 'สูบส่งน้ำบางเขน 1 (TR1)', color: '#cc0055',
+      match: s => s.area === 'TR1' || s.id === 'SP01' || (s.name||'').includes('TR1') },
+    { key: 'TR2', title: 'สูบส่งน้ำบางเขน 2 (TR2)', color: '#cc0055',
+      match: s => s.area === 'TR2' || s.id === 'SP02' || (s.name||'').includes('TR2') },
+    { key: 'TR3', title: 'สูบส่งน้ำบางเขน 3 (TR3)', color: '#cc0055',
+      match: s => s.area === 'TR3' || s.id === 'SP03' || (s.name||'').includes('TR3') },
+    { key: 'Dis1', title: 'สูบจ่ายน้ำบางเขน 1 (Dis1)', color: '#4488ff',
+      match: s => /Dis\s*1/i.test(s.area) || s.id === 'SP04' || (s.name||'').includes('Dis1') },
+    { key: 'Dis2', title: 'สูบจ่ายน้ำบางเขน 2 (Dis2)', color: '#4488ff',
+      match: s => /Dis\s*2/i.test(s.area) || s.id === 'SP05' || (s.name||'').includes('Dis2') },
+    { key: 'MDIS', title: 'สูบจ่ายน้ำมหาสวัสดิ์', color: '#9C27B0',
+      match: s => /มหาสวัสดิ์|MDIS|MTR/i.test(s.area) || ['SP11','SP12'].includes(s.id) || /มหาสวัสดิ์/i.test(s.name) },
+    { key: 'THO', title: 'โรงผลิตน้ำธนบุรี', color: '#FF8F00',
+      match: s => /ธนบุรี/i.test(s.area) || s.id === 'SP06' || /ธนบุรี/i.test(s.name) },
+    { key: 'SAM', title: 'โรงผลิตน้ำสามเสน', color: '#00897B',
+      match: s => /สามเสน/i.test(s.area) || ['SP07','SP08','SP09','SP10'].includes(s.id) || /สามเสน/i.test(s.name) },
+  ];
+
+  // จัดกลุ่ม
+  const grouped = {};
+  const assigned = new Set();
+  for (const zone of ZONE_GROUPS) {
+    grouped[zone.key] = sensors.filter(s => {
+      if (assigned.has(String(s.id))) return false;
+      if (zone.match(s)) { assigned.add(String(s.id)); return true; }
+      return false;
+    });
+  }
+  // สถานีที่ไม่อยู่ในกลุ่มใด
+  const unassigned = sensors.filter(s => !assigned.has(String(s.id)));
+  if (unassigned.length > 0) {
+    ZONE_GROUPS.push({ key: 'OTHER', title: 'อื่นๆ', color: '#666666', match: () => true });
+    grouped['OTHER'] = unassigned;
+  }
+
+  // สร้าง carousel
+  const bubbles = [];
+  for (const zone of ZONE_GROUPS) {
+    const list = grouped[zone.key] || [];
+    if (list.length === 0) continue;
+
+    // เรียงตาม FRC จากน้อยไปมาก
+    list.sort((a, b) => a.frc - b.frc);
+
+    const rows = [];
+    // Header row
+    rows.push({
+      type: "box", layout: "horizontal", paddingAll: "6px",
+      backgroundColor: "#f0e8f0",
+      contents: [
+        { type: "text", text: "No.", size: "xxs", color: "#999999", flex: 1, weight: "bold" },
+        { type: "text", text: "สถานี", size: "xxs", color: "#999999", flex: 6, weight: "bold" },
+        { type: "text", text: "FRC", size: "xxs", color: "#999999", flex: 2, align: "end", weight: "bold" }
+      ]
+    });
+
+    for (let i = 0; i < list.length; i++) {
+      const s = list[i];
+      const st = frcStatus(s.frc, s.type, s.id);
+      const shortName = s.name.length > 18 ? s.name.substring(0, 18) + '..' : s.name;
+      const bgColor = i % 2 === 0 ? '#ffffff' : '#faf8fa';
+      rows.push({
+        type: "box", layout: "horizontal", paddingAll: "4px 6px",
+        backgroundColor: bgColor,
+        contents: [
+          { type: "text", text: `${i + 1}`, size: "xxs", color: "#bbbbbb", flex: 1 },
+          { type: "text", text: shortName, size: "xxs", color: "#1a1a2e", flex: 6 },
+          { type: "text", text: s.frc.toFixed(2), size: "xxs", color: st.color, flex: 2, align: "end", weight: "bold" }
+        ]
+      });
+    }
+
+    // เฉลี่ย
+    const avg = (list.reduce((a, s) => a + s.frc, 0) / list.length).toFixed(2);
+    rows.push({
+      type: "box", layout: "horizontal", paddingAll: "6px",
+      backgroundColor: "#f0e8f0",
+      contents: [
+        { type: "text", text: "", size: "xxs", flex: 1 },
+        { type: "text", text: "เฉลี่ย", size: "xxs", color: "#3a0a20", flex: 6, weight: "bold" },
+        { type: "text", text: `${avg}`, size: "xxs", color: "#3a0a20", flex: 2, align: "end", weight: "bold" }
+      ]
+    });
+
+    bubbles.push({
+      type: "bubble", size: "mega",
+      header: {
+        type: "box", layout: "vertical", backgroundColor: zone.color, paddingAll: "12px",
+        contents: [
+          { type: "text", text: zone.title, color: "#ffffff", weight: "bold", size: "sm", wrap: true },
+          { type: "text", text: `${list.length} สถานี | ${thaiDate()}`, color: "#ffffff", size: "xxs", margin: "xs" }
+        ]
+      },
+      body: { type: "box", layout: "vertical", paddingAll: "4px", spacing: "none", contents: rows }
+    });
+  }
+
+  if (bubbles.length === 0) {
+    return lineReply(replyToken, [{ type: 'text', text: '❌ ไม่พบข้อมูลสถานี' }]);
+  }
+
+  // เพิ่ม bubble สรุปหน้าแรก
+  const totalStations = sensors.length;
+  const avgAll = (sensors.reduce((a, s) => a + s.frc, 0) / totalStations).toFixed(2);
+  const lowAll = sensors.filter(s => s.frc < FRC_MIN).length;
+
+  const summaryBubble = {
+    type: "bubble", size: "mega",
+    header: {
+      type: "box", layout: "vertical", backgroundColor: "#1a0a40", paddingAll: "14px",
+      contents: [
+        { type: "text", text: "📋 ตารางคลอรีนประจำวัน", color: "#ffffff", weight: "bold", size: "md" },
+        { type: "text", text: `${thaiDate()} — ${thaiTime()} น. | เลื่อน → ดูแต่ละเขต`, color: "#ccccff", size: "xxs", margin: "sm", wrap: true }
+      ]
+    },
+    body: {
+      type: "box", layout: "vertical", paddingAll: "14px",
+      contents: [
+        makeStatRow("สถานีทั้งหมด", `${totalStations} สถานี`),
+        makeStatRow("FRC เฉลี่ย", `${avgAll} มก/ล.`),
+        makeStatRow("ต่ำกว่าเกณฑ์", `${lowAll} สถานี`),
+        { type: "separator", margin: "lg" },
+        { type: "text", text: "📊 แยกตามเขตรับน้ำ", weight: "bold", size: "sm", color: "#3a0a20", margin: "lg" },
+        ...ZONE_GROUPS.filter(z => (grouped[z.key] || []).length > 0).map(z => {
+          const list = grouped[z.key];
+          const avg = (list.reduce((a, s) => a + s.frc, 0) / list.length).toFixed(2);
+          return {
+            type: "box", layout: "horizontal", margin: "sm",
+            contents: [
+              { type: "text", text: z.title, size: "xxs", color: "#1a1a2e", flex: 6, wrap: true },
+              { type: "text", text: `${list.length}`, size: "xxs", color: "#999999", flex: 1, align: "end" },
+              { type: "text", text: `${avg}`, size: "xxs", color: "#3a0a20", flex: 2, align: "end", weight: "bold" }
+            ]
+          };
+        }),
+        { type: "text", text: "← เลื่อนซ้ายเพื่อดูรายละเอียดแต่ละเขต →", size: "xxs", color: "#cc0055", margin: "lg", align: "center", wrap: true }
+      ]
+    },
+    footer: {
+      type: "box", layout: "horizontal", paddingAll: "10px", spacing: "sm",
+      contents: [
+        { type: "button", action: { type: "message", label: "ดูค่าปัจจุบัน", text: "คลอรีน" }, height: "sm", style: "primary", color: "#cc0055", flex: 1 },
+        { type: "button", action: { type: "uri", label: "แผนที่", uri: "https://piphatboribannukul.github.io/FRCfirebase/" }, height: "sm", style: "secondary", flex: 1 }
+      ]
+    }
+  };
+
+  return lineReply(replyToken, [{
+    type: "flex",
+    altText: `📋 ตารางคลอรีนประจำวัน — ${thaiDate()} FRC เฉลี่ย ${avgAll} มก/ล.`,
+    contents: { type: "carousel", contents: [summaryBubble, ...bubbles.slice(0, 11)] }
+  }]);
 }
 
 async function replyCurrentStatus(replyToken) {
@@ -1301,6 +1469,7 @@ function replyHelp(replyToken) {
           makeHelpRow("📍", "ใกล้ฉัน", "ส่งตำแหน่ง → เปิดแผนที่ปักหมุด"),
           makeHelpRow("🗺️", "แผนที่", "เปิด Contour Map เต็มจอ"),
           makeHelpRow("📊", "สรุปวัน", "สรุปประจำวันแบบผู้บริหาร"),
+          makeHelpRow("📋", "ตาราง", "ตาราง FRC แยกตามเขตรับน้ำ"),
           { type: "separator" },
           { type: "text", text: "⌨️ คำสั่งเพิ่มเติม", weight: "bold", size: "sm", color: "#3a0a20" },
           makeHelpRow("📋", "สรุป", "รายงานสรุปทุกสถานี"),
