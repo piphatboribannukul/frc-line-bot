@@ -23,13 +23,24 @@ const LINE_API   = 'https://api.line.me/v2/bot/message';
 const MWA_API    = 'https://twqonline.mwa.co.th/TWQMSServicepublic/api/mwaonmobile/getStations';
 
 // Thresholds แบ่งตาม type สถานี
+// สถานีสูบส่ง (SP01-SP05, SP11-SP12 = pump ที่ id ขึ้นต้น SP)
+// โรงงานผลิตน้ำ (SP06-SP10 = plant) + สถานีสูบจ่าย (SW = pump ที่ id ขึ้นต้น SW)
+// สถานี monitor
 const THRESHOLDS = {
-  plant: { watch: 1.2, low: 1.0, high: 3.0, label: 'โรงงานผลิตน้ำ' },
-  pump:  { watch: 0.8, low: 0.5, high: 2.0, label: 'สถานีสูบส่ง/จ่ายน้ำ' },
+  send:    { watch: 1.2, low: 1.0, high: 3.0, label: 'สถานีสูบส่งน้ำ' },
+  plant:   { watch: 0.8, low: 0.5, high: 2.0, label: 'โรงงานผลิตน้ำ/สูบจ่าย' },
+  pump:    { watch: 0.8, low: 0.5, high: 2.0, label: 'สถานีสูบจ่ายน้ำ' },
   monitor: { watch: 0.4, low: 0.2, high: 2.0, label: 'สถานี Monitor' }
 };
-function getThreshold(type) {
-  return THRESHOLDS[type] || THRESHOLDS.monitor;
+function getThreshold(type, id) {
+  // สูบส่ง = SP + ไม่ใช่ plant (SP06-SP10)
+  const sid = String(id || '').toUpperCase();
+  if (sid.startsWith('SP') && !['SP06','SP07','SP08','SP09','SP10'].includes(sid)) {
+    return THRESHOLDS.send;
+  }
+  if (type === 'plant') return THRESHOLDS.plant;
+  if (type === 'pump') return THRESHOLDS.pump;
+  return THRESHOLDS.monitor;
 }
 // ค่าเดิมสำหรับ backward compatibility
 const FRC_MIN = 0.2;
@@ -150,8 +161,8 @@ function thaiDate(date = new Date()) {
 }
 
 /** สถานะ FRC → emoji + label (รองรับ type สถานี) */
-function frcStatus(frc, type) {
-  const t = getThreshold(type || 'monitor');
+function frcStatus(frc, type, id) {
+  const t = getThreshold(type || 'monitor', id);
   if (frc > t.high)  return { emoji: '🟠', label: 'สูง', color: '#FF8F00' };
   if (frc >= t.watch) return { emoji: '🟢', label: 'ดี', color: '#00C853' };
   if (frc >= t.low)   return { emoji: '🟡', label: 'เฝ้าระวัง', color: '#FFD600' };
@@ -170,7 +181,7 @@ async function checkAlerts() {
 
   for (const s of sensors) {
     if (s.frc <= 0) continue;
-    const t = getThreshold(s.type);
+    const t = getThreshold(s.type, s.id);
 
     if (s.frc < t.low) {
       const key = `${s.id}_low`;
@@ -228,7 +239,7 @@ function buildAlertFlex(alerts) {
   ];
 
   for (const s of alerts.slice(0, 8)) {
-    const st = frcStatus(s.frc, s.type);
+    const st = frcStatus(s.frc, s.type, s.id);
     const tLabel = s.threshold ? s.threshold.label : '';
     bodyContents.push({
       type: "box",
@@ -462,7 +473,13 @@ async function handleTextMessage(replyToken, text, userId) {
 
   // ── คำสั่ง: ตำแหน่ง / location / ใกล้ฉัน
   if (/ตำแหน่ง|location|ใกล้ฉัน|ใกล้|nearby|พิกัด/i.test(msg)) {
-    return replyLocationRequest(replyToken);
+    return replyLocationPrompt(replyToken);
+  }
+
+  // ── คำสั่ง: ค้นหาสถานที่ (flyTo ไปยังพื้นที่ใดก็ได้)
+  if (/^(ค้นหาสถานที่|ไปที่|goto|flyto|นำทาง) .+/i.test(msg)) {
+    const place = msg.replace(/^(ค้นหาสถานที่|ไปที่|goto|flyto|นำทาง)\s*/i, '');
+    return replyFlyToPlace(replyToken, place);
   }
 
   // ── คำสั่ง: help
@@ -817,7 +834,7 @@ async function replySearchStation(replyToken, query) {
 
   const rows = [];
   for (const s of results) {
-    const st = frcStatus(s.frc, s.type);
+    const st = frcStatus(s.frc, s.type, s.id);
     const flyToUrl = `${CONTOUR_URL}?flyto=${s.lat},${s.lon},16&station=${s.id}`;
     rows.push({
       type: "box", layout: "horizontal", margin: "lg",
@@ -861,33 +878,37 @@ async function replySearchStation(replyToken, query) {
 }
 
 // ── Location: ขอตำแหน่งจาก user ──
-function replyLocationRequest(replyToken) {
+function replyLocationPrompt(replyToken) {
   return lineReply(replyToken, [{
-    type: "text",
-    text: "📍 กดปุ่ม + ด้านล่างซ้าย → เลือก \"Location\" → ส่งตำแหน่งของคุณมา\n\nBot จะหาสถานีที่ใกล้ที่สุดให้!"
+    type: "flex",
+    altText: "📍 ส่งตำแหน่งเพื่อดูค่าคลอรีนใกล้คุณ",
+    contents: {
+      type: "bubble", size: "kilo",
+      body: {
+        type: "box", layout: "vertical", paddingAll: "20px", alignItems: "center",
+        contents: [
+          { type: "text", text: "📍", size: "3xl", align: "center" },
+          { type: "text", text: "ส่งตำแหน่งของคุณ", weight: "bold", size: "md", align: "center", margin: "lg", color: "#3a0a20" },
+          { type: "text", text: "กดปุ่ม + ด้านล่างซ้าย\nเลือก Location\nBot จะเปิดแผนที่พร้อมปักหมุดให้!", size: "xs", color: "#999999", align: "center", margin: "md", wrap: true }
+        ]
+      }
+    }
   }]);
 }
 
-// ── รับ Location message จาก user ──
+// ── รับ Location → เปิด Contour Map พร้อมปักหมุด ──
 async function handleLocationMessage(replyToken, lat, lon) {
   const sensors = await fetchSensors();
-  if (!sensors.length) {
-    return lineReply(replyToken, [{ type: 'text', text: '❌ ไม่สามารถดึงข้อมูลได้' }]);
-  }
-
-  // คำนวณระยะทางแล้วเรียงจากใกล้ไปไกล
-  const withDist = sensors.map(s => {
-    const dLat = s.lat - lat;
-    const dLon = s.lon - lon;
-    const dist = Math.sqrt(dLat * dLat + dLon * dLon) * 111; // approximate km
-    return { ...s, dist };
-  }).sort((a, b) => a.dist - b.dist).slice(0, 5);
-
   const CONTOUR_URL = 'https://piphatboribannukul.github.io/FRCfirebase/';
+  const mapUrl = `${CONTOUR_URL}?flyto=${lat},${lon},15&pin=${lat},${lon}`;
 
-  const rows = withDist.map(s => {
-    const st = frcStatus(s.frc, s.type);
-    const flyToUrl = `${CONTOUR_URL}?flyto=${s.lat},${s.lon},16&station=${s.id}`;
+  const nearest = sensors.map(s => {
+    const dist = Math.sqrt((s.lat - lat) ** 2 + (s.lon - lon) ** 2) * 111;
+    return { ...s, dist };
+  }).sort((a, b) => a.dist - b.dist).slice(0, 3);
+
+  const rows = nearest.map(s => {
+    const st = frcStatus(s.frc, s.type, s.id);
     return {
       type: "box", layout: "horizontal", margin: "lg",
       contents: [
@@ -899,32 +920,21 @@ async function handleLocationMessage(replyToken, lat, lon) {
             { type: "text", text: `FRC: ${s.frc.toFixed(2)} mg/L (${st.label})`, size: "xs", color: st.color, margin: "xs" },
             { type: "text", text: `📏 ${s.dist.toFixed(1)} km`, size: "xxs", color: "#999999", margin: "xs" }
           ]
-        },
-        {
-          type: "box", layout: "vertical", flex: 0, justifyContent: "center",
-          contents: [{
-            type: "button",
-            action: { type: "uri", label: "📍", uri: flyToUrl },
-            style: "primary", color: "#cc0055", height: "sm"
-          }]
         }
       ]
     };
   });
 
-  // Link ไปแผนที่ที่ตำแหน่ง user
-  const userMapUrl = `${CONTOUR_URL}?flyto=${lat},${lon},14`;
-
   return lineReply(replyToken, [{
     type: "flex",
-    altText: `📍 สถานีใกล้คุณ — ${withDist[0].name} (${withDist[0].dist.toFixed(1)} km)`,
+    altText: `📍 สถานีใกล้คุณ — ${nearest[0]?.name || '-'}`,
     contents: {
       type: "bubble", size: "mega",
       header: {
         type: "box", layout: "vertical", backgroundColor: "#3a0a20", paddingAll: "14px",
         contents: [
-          { type: "text", text: "📍 สถานีใกล้คุณ", color: "#ffffff", weight: "bold", size: "md" },
-          { type: "text", text: "5 สถานีที่ใกล้ตำแหน่งของคุณ", color: "#ffccdd", size: "xs", margin: "sm" }
+          { type: "text", text: "📍 สถานีใกล้ตำแหน่งคุณ", color: "#ffffff", weight: "bold", size: "md" },
+          { type: "text", text: "3 สถานีที่ใกล้ที่สุด", color: "#ffccdd", size: "xs", margin: "sm" }
         ]
       },
       body: { type: "box", layout: "vertical", paddingAll: "14px", contents: rows },
@@ -932,12 +942,73 @@ async function handleLocationMessage(replyToken, lat, lon) {
         type: "box", layout: "vertical", paddingAll: "12px",
         contents: [{
           type: "button",
-          action: { type: "uri", label: "🗺️ เปิดแผนที่ตำแหน่งของฉัน", uri: userMapUrl },
+          action: { type: "uri", label: "🗺️ เปิดแผนที่ ณ ตำแหน่งของฉัน", uri: mapUrl },
           style: "primary", color: "#cc0055", height: "sm"
         }]
       }
     }
   }]);
+}
+
+// ── ค้นหาสถานที่ → flyTo (ไม่จำกัดแค่สถานี ใช้ geocoding) ──
+async function replyFlyToPlace(replyToken, place) {
+  try {
+    const geocodeUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(place + ' Bangkok Thailand')}&format=json&limit=1`;
+    const res = await axios.get(geocodeUrl, { timeout: 10000, headers: { 'User-Agent': 'FRC-LINE-Bot/1.0' } });
+
+    if (!res.data || res.data.length === 0) {
+      return lineReply(replyToken, [{ type: 'text', text: `🔍 ไม่พบ "${place}"\n\nลองพิมพ์ เช่น:\n• ไปที่ สถานีกลางบางซื่อ\n• ไปที่ สยาม\n• ไปที่ สุวรรณภูมิ` }]);
+    }
+
+    const loc = res.data[0];
+    const lat = parseFloat(loc.lat);
+    const lon = parseFloat(loc.lon);
+    const displayName = loc.display_name.split(',').slice(0, 2).join(',');
+    const CONTOUR_URL = 'https://piphatboribannukul.github.io/FRCfirebase/';
+    const mapUrl = `${CONTOUR_URL}?flyto=${lat},${lon},15&pin=${lat},${lon}`;
+
+    const sensors = await fetchSensors();
+    const nearest = sensors.map(s => {
+      const dist = Math.sqrt((s.lat - lat) ** 2 + (s.lon - lon) ** 2) * 111;
+      return { ...s, dist };
+    }).sort((a, b) => a.dist - b.dist)[0];
+
+    const bodyContents = [
+      { type: "text", text: `พิกัด: ${lat.toFixed(4)}, ${lon.toFixed(4)}`, size: "xs", color: "#999999" }
+    ];
+    if (nearest) {
+      const st = frcStatus(nearest.frc, nearest.type, nearest.id);
+      bodyContents.push({ type: "text", text: `สถานีใกล้สุด: ${nearest.name}`, size: "xs", color: "#1a1a2e", margin: "md", wrap: true });
+      bodyContents.push({ type: "text", text: `${st.emoji} FRC ${nearest.frc.toFixed(2)} mg/L (${nearest.dist.toFixed(1)} km)`, size: "xs", color: st.color, margin: "xs" });
+    }
+
+    return lineReply(replyToken, [{
+      type: "flex",
+      altText: `🗺️ ${place} — เปิดในแผนที่ Contour`,
+      contents: {
+        type: "bubble", size: "mega",
+        header: {
+          type: "box", layout: "vertical", backgroundColor: "#3a0a20", paddingAll: "14px",
+          contents: [
+            { type: "text", text: `🗺️ ${place}`, color: "#ffffff", weight: "bold", size: "md", wrap: true },
+            { type: "text", text: displayName, color: "#ffccdd", size: "xxs", margin: "sm", wrap: true }
+          ]
+        },
+        body: { type: "box", layout: "vertical", paddingAll: "14px", contents: bodyContents },
+        footer: {
+          type: "box", layout: "vertical", paddingAll: "12px",
+          contents: [{
+            type: "button",
+            action: { type: "uri", label: "🗺️ เปิดในแผนที่ Contour", uri: mapUrl },
+            style: "primary", color: "#cc0055", height: "sm"
+          }]
+        }
+      }
+    }]);
+  } catch (err) {
+    console.error('[Geocode Error]', err.message);
+    return lineReply(replyToken, [{ type: 'text', text: `❌ ไม่สามารถค้นหา "${place}" ได้` }]);
+  }
 }
 
 function replyHelp(replyToken) {
@@ -964,12 +1035,13 @@ function replyHelp(replyToken) {
           makeHelpRow("🔴", "สถานีต่ำ", "ดูสถานีที่ค่าต่ำ"),
           makeHelpRow("🔍", "หา [ชื่อ]", "ค้นหาสถานี + ดูในแผนที่"),
           makeHelpRow("📍", "ใกล้ฉัน", "หาสถานีใกล้ตำแหน่งคุณ"),
+          makeHelpRow("🗺️", "ไปที่ [ที่]", "บินไปสถานที่ใดก็ได้"),
           { type: "separator" },
           { type: "text", text: "🔔 การแจ้งเตือนอัตโนมัติ:", weight: "bold", size: "xs", color: "#3a0a20", wrap: true },
           { type: "text", text: "• ตรวจค่าทุก 10 นาที", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "• เกณฑ์แยกตาม type สถานี:", size: "xxs", color: "#999999", wrap: true },
-          { type: "text", text: "  โรงงาน/สูบส่ง: ต่ำ<1.0 เฝ้าระวัง<1.2 สูง>3.0", size: "xxs", color: "#999999", wrap: true },
-          { type: "text", text: "  สูบจ่าย: ต่ำ<0.5 เฝ้าระวัง<0.8 สูง>2.0", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "  สูบส่ง: ต่ำ<1.0 เฝ้าระวัง<1.2 สูง>3.0", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "  ผลิตน้ำ/สูบจ่าย: ต่ำ<0.5 เฝ้าระวัง<0.8 สูง>2.0", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "  Monitor: ต่ำ<0.2 เฝ้าระวัง<0.4 สูง>2.0", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "• สถานีเดิมจะไม่แจ้งซ้ำภายใน 3 ชม.", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "• ส่งสรุปรายงานทุกวัน 08:00 / 17:00", size: "xxs", color: "#999999", wrap: true }
