@@ -23,24 +23,31 @@ const LINE_API   = 'https://api.line.me/v2/bot/message';
 const MWA_API    = 'https://twqonline.mwa.co.th/TWQMSServicepublic/api/mwaonmobile/getStations';
 
 // Thresholds แบ่งตาม type สถานี
-// สถานีสูบส่ง (SP01-SP05, SP11-SP12 = pump ที่ id ขึ้นต้น SP)
-// โรงงานผลิตน้ำ (SP06-SP10 = plant) + สถานีสูบจ่าย (SW = pump ที่ id ขึ้นต้น SW)
-// สถานี monitor
+// สถานีสูบส่ง = SP01(TR1), SP02(TR2), SP03(TR3), SP11(MTR)
+// สถานีสูบจ่าย = SP04(Dis1), SP05(Dis2), SP12(สูบจ่ายมหาสวัสดิ์)
+//   + SW ทั้งหมด + SP06-SP10 (โรงงานผลิตน้ำ)
+// สถานี monitor = ที่เหลือ (numeric id)
+const SEND_IDS = ['SP01','SP02','SP03','SP11'];
+const PUMP_IDS = ['SP04','SP05','SP12'];
+
 const THRESHOLDS = {
-  send:    { watch: 1.2, low: 1.0, high: 3.0, label: 'สถานีสูบส่งน้ำ' },
-  plant:   { watch: 0.8, low: 0.5, high: 2.0, label: 'โรงงานผลิตน้ำ/สูบจ่าย' },
-  pump:    { watch: 0.8, low: 0.5, high: 2.0, label: 'สถานีสูบจ่ายน้ำ' },
+  send:    { watch: 1.0, low: 0.2, high: 3.0, label: 'สถานีสูบส่งน้ำ' },
+  pump:    { watch: 0.8, low: 0.2, high: 2.0, label: 'สถานีสูบจ่ายน้ำ' },
   monitor: { watch: 0.4, low: 0.2, high: 2.0, label: 'สถานี Monitor' }
 };
 function getThreshold(type, id) {
-  // สูบส่ง = SP + ไม่ใช่ plant (SP06-SP10)
   const sid = String(id || '').toUpperCase();
-  if (sid.startsWith('SP') && !['SP06','SP07','SP08','SP09','SP10'].includes(sid)) {
-    return THRESHOLDS.send;
-  }
-  if (type === 'plant') return THRESHOLDS.plant;
+  if (SEND_IDS.includes(sid)) return THRESHOLDS.send;
+  if (PUMP_IDS.includes(sid) || sid.startsWith('SW') || type === 'plant') return THRESHOLDS.pump;
   if (type === 'pump') return THRESHOLDS.pump;
   return THRESHOLDS.monitor;
+}
+function getStationType(s) {
+  const sid = String(s.id).toUpperCase();
+  if (SEND_IDS.includes(sid)) return 'send';
+  if (PUMP_IDS.includes(sid) || sid.startsWith('SW') || s.type === 'plant') return 'pump';
+  if (s.type === 'pump') return 'pump';
+  return 'monitor';
 }
 // ค่าเดิมสำหรับ backward compatibility
 const FRC_MIN = 0.2;
@@ -716,12 +723,9 @@ async function replyCurrentStatus(replyToken) {
     return lineReply(replyToken, [{ type: 'text', text: '❌ ไม่สามารถดึงข้อมูลได้ กรุณาลองใหม่' }]);
   }
 
-  const sendStations = sensors.filter(s => {
-    const sid = String(s.id).toUpperCase();
-    return sid.startsWith('SP') && !['SP06','SP07','SP08','SP09','SP10'].includes(sid);
-  });
-  const plantStations = sensors.filter(s => s.type === 'plant' || (s.type === 'pump' && String(s.id).toUpperCase().startsWith('SW')));
-  const monitorStations = sensors.filter(s => s.type === 'monitor');
+  const sendStations = sensors.filter(s => getStationType(s) === 'send');
+  const plantStations = sensors.filter(s => getStationType(s) === 'pump');
+  const monitorStations = sensors.filter(s => getStationType(s) === 'monitor');
 
   function countByStatus(list, thType) {
     let ok = 0, watch = 0, low = 0, high = 0;
@@ -805,7 +809,7 @@ async function replyCurrentStatus(replyToken) {
             ]
           },
           typeRow("🏭 สถานีสูบส่ง", sc, 'send'),
-          typeRow("💧 ผลิตน้ำ/สูบจ่าย", pc, 'plant'),
+          typeRow("💧 สถานีสูบจ่าย", pc, 'pump'),
           typeRow("📡 Monitor", mc, 'monitor'),
           { type: "separator", margin: "lg" },
           { type: "text", text: "🟢 ดี = เกินเกณฑ์เฝ้าระวัง  🟡 เฝ้าระวัง  🔴 ต่ำกว่าเกณฑ์  🟠 สูงเกิน", size: "xxs", color: "#999999", margin: "sm", wrap: true }
@@ -839,20 +843,17 @@ async function replyTypeDetail(replyToken, typeFilter) {
 
   let filtered, title, thType, headerColor;
   if (typeFilter === 'send') {
-    filtered = sensors.filter(s => {
-      const sid = String(s.id).toUpperCase();
-      return sid.startsWith('SP') && !['SP06','SP07','SP08','SP09','SP10'].includes(sid);
-    });
+    filtered = sensors.filter(s => getStationType(s) === 'send');
     title = 'สถานีสูบส่งน้ำ';
     thType = 'send';
     headerColor = '#cc0055';
   } else if (typeFilter === 'plant') {
-    filtered = sensors.filter(s => s.type === 'plant' || (s.type === 'pump' && String(s.id).toUpperCase().startsWith('SW')));
-    title = 'ผลิตน้ำ/สูบจ่าย';
-    thType = 'plant';
+    filtered = sensors.filter(s => getStationType(s) === 'pump');
+    title = 'สถานีสูบจ่ายน้ำ';
+    thType = 'pump';
     headerColor = '#4488ff';
   } else {
-    filtered = sensors.filter(s => s.type === 'monitor');
+    filtered = sensors.filter(s => getStationType(s) === 'monitor');
     title = 'สถานี Monitor';
     thType = 'monitor';
     headerColor = '#FF8F00';
@@ -1243,8 +1244,8 @@ function replyHelp(replyToken) {
           { type: "text", text: "🔔 การแจ้งเตือนอัตโนมัติ:", weight: "bold", size: "xs", color: "#3a0a20", wrap: true },
           { type: "text", text: "• ตรวจค่าทุก 10 นาที", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "• เกณฑ์แยกตาม type สถานี:", size: "xxs", color: "#999999", wrap: true },
-          { type: "text", text: "  สูบส่ง: ต่ำ<1.0 เฝ้าระวัง<1.2 สูง>3.0", size: "xxs", color: "#999999", wrap: true },
-          { type: "text", text: "  ผลิตน้ำ/สูบจ่าย: ต่ำ<0.5 เฝ้าระวัง<0.8 สูง>2.0", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "  สูบส่ง: ต่ำ<0.2 เฝ้าระวัง<1.0 สูง>3.0", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "  สูบจ่าย: ต่ำ<0.2 เฝ้าระวัง<0.8 สูง>2.0", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "  Monitor: ต่ำ<0.2 เฝ้าระวัง<0.4 สูง>2.0", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "• สถานีเดิมจะไม่แจ้งซ้ำภายใน 3 ชม.", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "• ส่งสรุปรายงานทุกวัน 08:00 / 17:00", size: "xxs", color: "#999999", wrap: true }
