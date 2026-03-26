@@ -1033,12 +1033,11 @@ async function replyLowStations(replyToken) {
 
 async function replySearchStation(replyToken, query) {
   const sensors = await fetchSensors();
-  const results = sensors.filter(s =>
-    s.name.toLowerCase().includes(query) ||
-    String(s.id).toLowerCase().includes(query) ||
-    (s.area || '').toLowerCase().includes(query) ||
-    (s.branch || '').toLowerCase().includes(query)
-  ).slice(0, 5);
+  const words = query.split(/\s+/).filter(w => w.length > 0);
+  const results = sensors.filter(s => {
+    const searchText = `${s.name} ${s.id} ${s.area || ''} ${s.branch || ''}`.toLowerCase();
+    return words.every(w => searchText.includes(w));
+  }).slice(0, 8);
 
   if (results.length === 0) {
     return lineReply(replyToken, [{ type: 'text', text: `🔍 ไม่พบสถานี "${query}"\n\nลองพิมพ์ชื่อย่อ เช่น:\n• หา บางเขน\n• หา สมุทรปราการ\n• หา SP01` }]);
@@ -1167,33 +1166,91 @@ async function handleLocationMessage(replyToken, lat, lon) {
 // ── ค้นหาสถานที่ → flyTo (ไม่จำกัดแค่สถานี ใช้ geocoding) ──
 async function replyFlyToPlace(replyToken, place) {
   try {
-    const geocodeUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(place + ' Bangkok Thailand')}&format=json&limit=1`;
-    const res = await axios.get(geocodeUrl, { timeout: 10000, headers: { 'User-Agent': 'FRC-LINE-Bot/1.0' } });
+    const CONTOUR_URL = 'https://piphatboribannukul.github.io/FRCfirebase/';
+    const sensors = await fetchSensors();
+
+    // ขั้น 1: ค้นหาในสถานีก่อน
+    const words = place.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+    const stationMatch = sensors.filter(s => {
+      const searchText = `${s.name} ${s.id} ${s.area || ''} ${s.branch || ''}`.toLowerCase();
+      return words.every(w => searchText.includes(w));
+    });
+
+    if (stationMatch.length > 0) {
+      // เจอสถานีในระบบ → flyTo ไปสถานีแรก
+      const s = stationMatch[0];
+      const st = frcStatus(s.frc, s.type, s.id);
+      const mapUrl = `${CONTOUR_URL}?flyto=${s.lat},${s.lon},16&station=${s.id}`;
+
+      return lineReply(replyToken, [{
+        type: "flex",
+        altText: `📍 ${s.name} — FRC ${s.frc.toFixed(2)} mg/L`,
+        contents: {
+          type: "bubble", size: "mega",
+          header: {
+            type: "box", layout: "vertical", backgroundColor: "#3a0a20", paddingAll: "14px",
+            contents: [
+              { type: "text", text: `📍 ${s.name}`, color: "#ffffff", weight: "bold", size: "md", wrap: true },
+              { type: "text", text: `${s.id} | ${s.area || ''} ${s.branch || ''}`.trim(), color: "#ffccdd", size: "xxs", margin: "sm", wrap: true }
+            ]
+          },
+          body: {
+            type: "box", layout: "vertical", paddingAll: "14px",
+            contents: [
+              { type: "text", text: `${st.emoji} FRC: ${s.frc.toFixed(2)} mg/L (${st.label})`, size: "sm", color: st.color, weight: "bold" },
+              makeStatRow("ประเภท", getThreshold(s.type, s.id).label),
+              makeStatRow("พิกัด", `${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}`),
+              stationMatch.length > 1 ? { type: "text", text: `พบอีก ${stationMatch.length - 1} สถานีที่ตรง — พิมพ์ "หา ${place}" เพื่อดูทั้งหมด`, size: "xxs", color: "#999999", margin: "md", wrap: true } : { type: "filler" }
+            ].filter(c => c.type !== 'filler')
+          },
+          footer: {
+            type: "box", layout: "vertical", paddingAll: "12px",
+            contents: [{
+              type: "button",
+              action: { type: "uri", label: "🗺️ เปิดในแผนที่ Contour", uri: mapUrl },
+              style: "primary", color: "#cc0055", height: "sm"
+            }]
+          }
+        }
+      }]);
+    }
+
+    // ขั้น 2: ไม่เจอในสถานี → geocode จาก Nominatim
+    // ลองค้นหาแบบ 1: ชื่อตรงๆ + Thailand
+    let geocodeUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(place)}&format=json&limit=3&countrycodes=th`;
+    let res = await axios.get(geocodeUrl, { timeout: 10000, headers: { 'User-Agent': 'FRC-LINE-Bot/1.0' } });
+
+    // ถ้าไม่เจอ ลองเพิ่ม กรุงเทพ
+    if (!res.data || res.data.length === 0) {
+      geocodeUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(place + ' กรุงเทพ')}&format=json&limit=3`;
+      res = await axios.get(geocodeUrl, { timeout: 10000, headers: { 'User-Agent': 'FRC-LINE-Bot/1.0' } });
+    }
 
     if (!res.data || res.data.length === 0) {
-      return lineReply(replyToken, [{ type: 'text', text: `🔍 ไม่พบ "${place}"\n\nลองพิมพ์ เช่น:\n• ไปที่ สถานีกลางบางซื่อ\n• ไปที่ สยาม\n• ไปที่ สุวรรณภูมิ` }]);
+      return lineReply(replyToken, [{ type: 'text', text: `🔍 ไม่พบ "${place}"\n\nลองพิมพ์ เช่น:\n• ไปที่ บางเขน\n• ไปที่ สยาม\n• ไปที่ สุวรรณภูมิ\n• ไปที่ สถานีสูบส่ง (ค้นหาสถานีในระบบ)` }]);
     }
 
     const loc = res.data[0];
     const lat = parseFloat(loc.lat);
     const lon = parseFloat(loc.lon);
-    const displayName = loc.display_name.split(',').slice(0, 2).join(',');
-    const CONTOUR_URL = 'https://piphatboribannukul.github.io/FRCfirebase/';
+    const displayName = loc.display_name.split(',').slice(0, 3).join(', ');
     const mapUrl = `${CONTOUR_URL}?flyto=${lat},${lon},15&pin=${lat},${lon}`;
 
-    const sensors = await fetchSensors();
     const nearest = sensors.map(s => {
       const dist = Math.sqrt((s.lat - lat) ** 2 + (s.lon - lon) ** 2) * 111;
       return { ...s, dist };
     }).sort((a, b) => a.dist - b.dist)[0];
 
     const bodyContents = [
-      { type: "text", text: `พิกัด: ${lat.toFixed(4)}, ${lon.toFixed(4)}`, size: "xs", color: "#999999" }
+      { type: "text", text: displayName, size: "xs", color: "#666666", wrap: true },
+      { type: "text", text: `พิกัด: ${lat.toFixed(4)}, ${lon.toFixed(4)}`, size: "xxs", color: "#999999", margin: "sm" }
     ];
     if (nearest) {
       const st = frcStatus(nearest.frc, nearest.type, nearest.id);
-      bodyContents.push({ type: "text", text: `สถานีใกล้สุด: ${nearest.name}`, size: "xs", color: "#1a1a2e", margin: "md", wrap: true });
-      bodyContents.push({ type: "text", text: `${st.emoji} FRC ${nearest.frc.toFixed(2)} mg/L (${nearest.dist.toFixed(1)} km)`, size: "xs", color: st.color, margin: "xs" });
+      bodyContents.push({ type: "separator", margin: "md" });
+      bodyContents.push({ type: "text", text: "สถานีใกล้สุด:", size: "xxs", color: "#999999", margin: "md" });
+      bodyContents.push({ type: "text", text: `${st.emoji} ${nearest.name}`, size: "sm", color: "#1a1a2e", margin: "xs", wrap: true });
+      bodyContents.push({ type: "text", text: `FRC ${nearest.frc.toFixed(2)} mg/L (${nearest.dist.toFixed(1)} km)`, size: "xs", color: st.color, margin: "xs" });
     }
 
     return lineReply(replyToken, [{
@@ -1204,8 +1261,7 @@ async function replyFlyToPlace(replyToken, place) {
         header: {
           type: "box", layout: "vertical", backgroundColor: "#3a0a20", paddingAll: "14px",
           contents: [
-            { type: "text", text: `🗺️ ${place}`, color: "#ffffff", weight: "bold", size: "md", wrap: true },
-            { type: "text", text: displayName, color: "#ffccdd", size: "xxs", margin: "sm", wrap: true }
+            { type: "text", text: `🗺️ ${place}`, color: "#ffffff", weight: "bold", size: "md", wrap: true }
           ]
         },
         body: { type: "box", layout: "vertical", paddingAll: "14px", contents: bodyContents },
@@ -1220,7 +1276,7 @@ async function replyFlyToPlace(replyToken, place) {
       }
     }]);
   } catch (err) {
-    console.error('[Geocode Error]', err.message);
+    console.error('[FlyTo Error]', err.message);
     return lineReply(replyToken, [{ type: 'text', text: `❌ ไม่สามารถค้นหา "${place}" ได้` }]);
   }
 }
