@@ -22,9 +22,18 @@ const LINE_TOKEN = process.env.LINE_TOKEN || 'YB99Zn6PYMuAMCy44qRzZikQdz4ti4CHPt
 const LINE_API   = 'https://api.line.me/v2/bot/message';
 const MWA_API    = 'https://twqonline.mwa.co.th/TWQMSServicepublic/api/mwaonmobile/getStations';
 
-// Thresholds (ตรงกับ HTML ต้นฉบับ)
-const FRC_MIN = 0.2;   // mg/L — ต่ำกว่านี้ = แจ้งเตือน
-const FRC_HI  = 1.0;   // mg/L — สูงกว่านี้ = ดี
+// Thresholds แบ่งตาม type สถานี
+const THRESHOLDS = {
+  plant: { watch: 1.2, low: 1.0, high: 3.0, label: 'โรงงานผลิตน้ำ' },
+  pump:  { watch: 0.8, low: 0.5, high: 2.0, label: 'สถานีสูบส่ง/จ่ายน้ำ' },
+  monitor: { watch: 0.4, low: 0.2, high: 2.0, label: 'สถานี Monitor' }
+};
+function getThreshold(type) {
+  return THRESHOLDS[type] || THRESHOLDS.monitor;
+}
+// ค่าเดิมสำหรับ backward compatibility
+const FRC_MIN = 0.2;
+const FRC_HI  = 1.0;
 
 // Group ID / User IDs ที่จะรับแจ้งเตือน (เพิ่มจาก webhook follow event)
 let NOTIFY_TARGETS = new Set();
@@ -140,10 +149,12 @@ function thaiDate(date = new Date()) {
   return date.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-/** สถานะ FRC → emoji + label */
-function frcStatus(frc) {
-  if (frc >= FRC_HI)  return { emoji: '🟢', label: 'ดี', color: '#00C853' };
-  if (frc >= FRC_MIN) return { emoji: '🟡', label: 'ผ่าน', color: '#FFD600' };
+/** สถานะ FRC → emoji + label (รองรับ type สถานี) */
+function frcStatus(frc, type) {
+  const t = getThreshold(type || 'monitor');
+  if (frc > t.high)  return { emoji: '🟠', label: 'สูง', color: '#FF8F00' };
+  if (frc >= t.watch) return { emoji: '🟢', label: 'ดี', color: '#00C853' };
+  if (frc >= t.low)   return { emoji: '🟡', label: 'เฝ้าระวัง', color: '#FFD600' };
   return { emoji: '🔴', label: 'ต่ำ', color: '#FF1744' };
 }
 
@@ -155,23 +166,30 @@ async function checkAlerts() {
   const sensors = await fetchSensors();
   if (!sensors.length) return;
 
-  const lowStations  = sensors.filter(s => s.frc < FRC_MIN && s.frc > 0);
-  const highStations = sensors.filter(s => s.frc > 2.0);
-
   const alertList = [];
 
-  for (const s of lowStations) {
-    const key = `${s.id}_low`;
-    if (!alertedStations[key]) {
-      alertedStations[key] = Date.now();
-      alertList.push({ ...s, alertType: 'ต่ำ' });
-    }
-  }
-  for (const s of highStations) {
-    const key = `${s.id}_high`;
-    if (!alertedStations[key]) {
-      alertedStations[key] = Date.now();
-      alertList.push({ ...s, alertType: 'สูง' });
+  for (const s of sensors) {
+    if (s.frc <= 0) continue;
+    const t = getThreshold(s.type);
+
+    if (s.frc < t.low) {
+      const key = `${s.id}_low`;
+      if (!alertedStations[key]) {
+        alertedStations[key] = Date.now();
+        alertList.push({ ...s, alertType: 'ต่ำ', threshold: t });
+      }
+    } else if (s.frc > t.high) {
+      const key = `${s.id}_high`;
+      if (!alertedStations[key]) {
+        alertedStations[key] = Date.now();
+        alertList.push({ ...s, alertType: 'สูง', threshold: t });
+      }
+    } else if (s.frc < t.watch) {
+      const key = `${s.id}_watch`;
+      if (!alertedStations[key]) {
+        alertedStations[key] = Date.now();
+        alertList.push({ ...s, alertType: 'เฝ้าระวัง', threshold: t });
+      }
     }
   }
 
@@ -210,7 +228,8 @@ function buildAlertFlex(alerts) {
   ];
 
   for (const s of alerts.slice(0, 8)) {
-    const st = frcStatus(s.frc);
+    const st = frcStatus(s.frc, s.type);
+    const tLabel = s.threshold ? s.threshold.label : '';
     bodyContents.push({
       type: "box",
       layout: "horizontal",
@@ -229,7 +248,8 @@ function buildAlertFlex(alerts) {
           margin: "md",
           contents: [
             { type: "text", text: s.name, size: "sm", weight: "bold", wrap: true, color: "#1a1a2e" },
-            { type: "text", text: `FRC: ${s.frc.toFixed(2)} mg/L (${s.alertType})`, size: "xs", color: st.color }
+            { type: "text", text: `FRC: ${s.frc.toFixed(2)} mg/L (${s.alertType})`, size: "xs", color: st.color },
+            { type: "text", text: tLabel, size: "xxs", color: "#999999" }
           ]
         }
       ]
@@ -434,10 +454,15 @@ async function handleTextMessage(replyToken, text, userId) {
     return replyLowStations(replyToken);
   }
 
-  // ── คำสั่ง: ค้นหาสถานี
+  // ── คำสั่ง: ค้นหาสถานี (พร้อม link flyTo)
   if (/^(ค้น|หา|search) .+/i.test(msg)) {
     const query = msg.replace(/^(ค้น|หา|search)\s*/i, '').toLowerCase();
     return replySearchStation(replyToken, query);
+  }
+
+  // ── คำสั่ง: ตำแหน่ง / location / ใกล้ฉัน
+  if (/ตำแหน่ง|location|ใกล้ฉัน|ใกล้|nearby|พิกัด/i.test(msg)) {
+    return replyLocationRequest(replyToken);
   }
 
   // ── คำสั่ง: help
@@ -788,9 +813,13 @@ async function replySearchStation(replyToken, query) {
     return lineReply(replyToken, [{ type: 'text', text: `🔍 ไม่พบสถานี "${query}"\n\nลองพิมพ์ชื่อย่อ เช่น:\n• หา บางเขน\n• หา สมุทรปราการ\n• หา SP01` }]);
   }
 
-  const rows = results.map(s => {
-    const st = frcStatus(s.frc);
-    return {
+  const CONTOUR_URL = 'https://piphatboribannukul.github.io/FRCfirebase/';
+
+  const rows = [];
+  for (const s of results) {
+    const st = frcStatus(s.frc, s.type);
+    const flyToUrl = `${CONTOUR_URL}?flyto=${s.lat},${s.lon},16&station=${s.id}`;
+    rows.push({
       type: "box", layout: "horizontal", margin: "lg",
       contents: [
         { type: "text", text: st.emoji, size: "lg", flex: 0 },
@@ -801,10 +830,18 @@ async function replySearchStation(replyToken, query) {
             { type: "text", text: `FRC: ${s.frc.toFixed(2)} mg/L (${st.label}) | ${s.id}`, size: "xs", color: st.color, margin: "xs" },
             { type: "text", text: `${s.area} ${s.branch}`.trim() || '-', size: "xxs", color: "#999999", margin: "xs", wrap: true }
           ]
+        },
+        {
+          type: "box", layout: "vertical", flex: 0, justifyContent: "center",
+          contents: [{
+            type: "button",
+            action: { type: "uri", label: "📍", uri: flyToUrl },
+            style: "primary", color: "#cc0055", height: "sm"
+          }]
         }
       ]
-    };
-  });
+    });
+  }
 
   return lineReply(replyToken, [{
     type: "flex",
@@ -815,10 +852,90 @@ async function replySearchStation(replyToken, query) {
         type: "box", layout: "vertical", backgroundColor: "#3a0a20", paddingAll: "14px",
         contents: [
           { type: "text", text: `🔍 ผลค้นหา "${query}"`, color: "#ffffff", weight: "bold", size: "md", wrap: true },
-          { type: "text", text: `พบ ${results.length} สถานี`, color: "#ffccdd", size: "xs", margin: "sm" }
+          { type: "text", text: `พบ ${results.length} สถานี — กด 📍 เพื่อดูในแผนที่`, color: "#ffccdd", size: "xs", margin: "sm", wrap: true }
         ]
       },
       body: { type: "box", layout: "vertical", paddingAll: "14px", contents: rows }
+    }
+  }]);
+}
+
+// ── Location: ขอตำแหน่งจาก user ──
+function replyLocationRequest(replyToken) {
+  return lineReply(replyToken, [{
+    type: "text",
+    text: "📍 กดปุ่ม + ด้านล่างซ้าย → เลือก \"Location\" → ส่งตำแหน่งของคุณมา\n\nBot จะหาสถานีที่ใกล้ที่สุดให้!"
+  }]);
+}
+
+// ── รับ Location message จาก user ──
+async function handleLocationMessage(replyToken, lat, lon) {
+  const sensors = await fetchSensors();
+  if (!sensors.length) {
+    return lineReply(replyToken, [{ type: 'text', text: '❌ ไม่สามารถดึงข้อมูลได้' }]);
+  }
+
+  // คำนวณระยะทางแล้วเรียงจากใกล้ไปไกล
+  const withDist = sensors.map(s => {
+    const dLat = s.lat - lat;
+    const dLon = s.lon - lon;
+    const dist = Math.sqrt(dLat * dLat + dLon * dLon) * 111; // approximate km
+    return { ...s, dist };
+  }).sort((a, b) => a.dist - b.dist).slice(0, 5);
+
+  const CONTOUR_URL = 'https://piphatboribannukul.github.io/FRCfirebase/';
+
+  const rows = withDist.map(s => {
+    const st = frcStatus(s.frc, s.type);
+    const flyToUrl = `${CONTOUR_URL}?flyto=${s.lat},${s.lon},16&station=${s.id}`;
+    return {
+      type: "box", layout: "horizontal", margin: "lg",
+      contents: [
+        { type: "text", text: st.emoji, size: "lg", flex: 0 },
+        {
+          type: "box", layout: "vertical", flex: 5, margin: "md",
+          contents: [
+            { type: "text", text: s.name, size: "sm", weight: "bold", wrap: true, color: "#1a1a2e" },
+            { type: "text", text: `FRC: ${s.frc.toFixed(2)} mg/L (${st.label})`, size: "xs", color: st.color, margin: "xs" },
+            { type: "text", text: `📏 ${s.dist.toFixed(1)} km`, size: "xxs", color: "#999999", margin: "xs" }
+          ]
+        },
+        {
+          type: "box", layout: "vertical", flex: 0, justifyContent: "center",
+          contents: [{
+            type: "button",
+            action: { type: "uri", label: "📍", uri: flyToUrl },
+            style: "primary", color: "#cc0055", height: "sm"
+          }]
+        }
+      ]
+    };
+  });
+
+  // Link ไปแผนที่ที่ตำแหน่ง user
+  const userMapUrl = `${CONTOUR_URL}?flyto=${lat},${lon},14`;
+
+  return lineReply(replyToken, [{
+    type: "flex",
+    altText: `📍 สถานีใกล้คุณ — ${withDist[0].name} (${withDist[0].dist.toFixed(1)} km)`,
+    contents: {
+      type: "bubble", size: "mega",
+      header: {
+        type: "box", layout: "vertical", backgroundColor: "#3a0a20", paddingAll: "14px",
+        contents: [
+          { type: "text", text: "📍 สถานีใกล้คุณ", color: "#ffffff", weight: "bold", size: "md" },
+          { type: "text", text: "5 สถานีที่ใกล้ตำแหน่งของคุณ", color: "#ffccdd", size: "xs", margin: "sm" }
+        ]
+      },
+      body: { type: "box", layout: "vertical", paddingAll: "14px", contents: rows },
+      footer: {
+        type: "box", layout: "vertical", paddingAll: "12px",
+        contents: [{
+          type: "button",
+          action: { type: "uri", label: "🗺️ เปิดแผนที่ตำแหน่งของฉัน", uri: userMapUrl },
+          style: "primary", color: "#cc0055", height: "sm"
+        }]
+      }
     }
   }]);
 }
@@ -845,11 +962,15 @@ function replyHelp(replyToken) {
           makeHelpRow("📋", "สรุป", "รายงานสรุปทุกสถานี"),
           makeHelpRow("📊", "สรุปวัน", "สรุปค่าคลอรีนทั้งวัน"),
           makeHelpRow("🔴", "สถานีต่ำ", "ดูสถานีที่ค่าต่ำ"),
-          makeHelpRow("🔍", "หา [ชื่อ]", "ค้นหาสถานี เช่น 'หา บางเขน'"),
+          makeHelpRow("🔍", "หา [ชื่อ]", "ค้นหาสถานี + ดูในแผนที่"),
+          makeHelpRow("📍", "ใกล้ฉัน", "หาสถานีใกล้ตำแหน่งคุณ"),
           { type: "separator" },
           { type: "text", text: "🔔 การแจ้งเตือนอัตโนมัติ:", weight: "bold", size: "xs", color: "#3a0a20", wrap: true },
           { type: "text", text: "• ตรวจค่าทุก 10 นาที", size: "xxs", color: "#999999", wrap: true },
-          { type: "text", text: "• แจ้งเตือนเมื่อ FRC < 0.2 หรือ > 2.0 mg/L", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "• เกณฑ์แยกตาม type สถานี:", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "  โรงงาน/สูบส่ง: ต่ำ<1.0 เฝ้าระวัง<1.2 สูง>3.0", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "  สูบจ่าย: ต่ำ<0.5 เฝ้าระวัง<0.8 สูง>2.0", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "  Monitor: ต่ำ<0.2 เฝ้าระวัง<0.4 สูง>2.0", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "• สถานีเดิมจะไม่แจ้งซ้ำภายใน 3 ชม.", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "• ส่งสรุปรายงานทุกวัน 08:00 / 17:00", size: "xxs", color: "#999999", wrap: true }
         ]
@@ -895,6 +1016,11 @@ app.post('/webhook', async (req, res) => {
 
       if (event.type === 'message' && event.message.type === 'text') {
         await handleTextMessage(event.replyToken, event.message.text, source?.userId);
+      }
+
+      if (event.type === 'message' && event.message.type === 'location') {
+        const { latitude, longitude } = event.message;
+        await handleLocationMessage(event.replyToken, latitude, longitude);
       }
 
       if (event.type === 'follow') {
