@@ -771,7 +771,7 @@ async function replyCurrentStatus(replyToken) {
             { type: "text", text: `🟠${c.high}`, size: "xs", color: "#FF8F00", flex: 1 }
           ]
         },
-        { type: "text", text: `เกณฑ์: ดี>${th.watch} | เฝ้าระวัง>${th.low} | สูง>${th.high}`, size: "xxs", color: "#bbaabb", margin: "sm", wrap: true }
+        { type: "text", text: `ดี >${th.watch} | ระวัง ${th.low}-${th.watch} | ต่ำ <${th.low} | สูง >${th.high}`, size: "xxs", color: "#bbaabb", margin: "sm", wrap: true }
       ]
     };
   }
@@ -863,50 +863,54 @@ async function replyTypeDetail(replyToken, typeFilter) {
   const th = getThreshold(thType);
   const avg = filtered.length ? (filtered.reduce((a, s) => a + s.frc, 0) / filtered.length).toFixed(2) : '0';
 
-  const bodyContents = [
-    {
-      type: "box", layout: "horizontal", margin: "md", paddingAll: "8px",
-      backgroundColor: "#f8f4f6", cornerRadius: "6px",
-      contents: [
-        { type: "text", text: `🟢 >${th.watch}`, size: "xxs", color: "#00C853", flex: 1 },
-        { type: "text", text: `🟡 ${th.low}-${th.watch}`, size: "xxs", color: "#B8860B", flex: 1 },
-        { type: "text", text: `🔴 <${th.low}`, size: "xxs", color: "#FF1744", flex: 1 },
-        { type: "text", text: `🟠 >${th.high}`, size: "xxs", color: "#FF8F00", flex: 1 }
-      ]
-    },
-    {
-      type: "box", layout: "horizontal", margin: "md",
-      contents: [
-        { type: "text", text: `${filtered.length} สถานี`, size: "xs", color: "#999999", flex: 1 },
-        { type: "text", text: `เฉลี่ย ${avg} mg/L`, size: "xs", color: "#3a0a20", flex: 1, align: "end", weight: "bold" }
-      ]
-    },
-    { type: "separator", margin: "md" }
-  ];
-
-  const maxShow = Math.min(filtered.length, 12);
-  for (let i = 0; i < maxShow; i++) {
-    const s = filtered[i];
-    const st = frcStatus(s.frc, s.type, s.id);
-    const shortName = s.name.length > 20 ? s.name.substring(0, 20) + '..' : s.name;
-    bodyContents.push({
-      type: "box", layout: "horizontal", margin: "sm", paddingStart: "4px", paddingEnd: "4px",
-      contents: [
-        { type: "text", text: st.emoji, size: "xxs", flex: 0 },
-        { type: "text", text: shortName, size: "xxs", color: "#1a1a2e", flex: 6, margin: "sm" },
-        { type: "text", text: s.frc.toFixed(2), size: "xxs", color: st.color, flex: 2, align: "end", weight: "bold" }
-      ]
-    });
+  // ใช้ carousel ถ้าสถานีเยอะ — แบ่งหน้าละ 15
+  const pages = [];
+  const perPage = 15;
+  for (let p = 0; p < filtered.length; p += perPage) {
+    pages.push(filtered.slice(p, p + perPage));
   }
 
-  if (filtered.length > maxShow) {
-    bodyContents.push({ type: "text", text: `+${filtered.length - maxShow} สถานี`, size: "xxs", color: "#999999", margin: "sm", align: "center" });
-  }
+  const bubbles = pages.map((page, pageIdx) => {
+    const bodyContents = [];
 
-  return lineReply(replyToken, [{
-    type: "flex",
-    altText: `${title} — ${filtered.length} สถานี, FRC ${avg} mg/L`,
-    contents: {
+    // หน้าแรกแสดงเกณฑ์
+    if (pageIdx === 0) {
+      bodyContents.push({
+        type: "box", layout: "horizontal", margin: "md", paddingAll: "8px",
+        backgroundColor: "#f8f4f6", cornerRadius: "6px",
+        contents: [
+          { type: "text", text: `🟢>${th.watch}`, size: "xxs", color: "#00C853", flex: 1 },
+          { type: "text", text: `🟡${th.low}-${th.watch}`, size: "xxs", color: "#B8860B", flex: 1 },
+          { type: "text", text: `🔴<${th.low}`, size: "xxs", color: "#FF1744", flex: 1 },
+          { type: "text", text: `🟠>${th.high}`, size: "xxs", color: "#FF8F00", flex: 1 }
+        ]
+      });
+      bodyContents.push({
+        type: "box", layout: "horizontal", margin: "md",
+        contents: [
+          { type: "text", text: `${filtered.length} สถานี`, size: "xs", color: "#999999", flex: 1 },
+          { type: "text", text: `เฉลี่ย ${avg} mg/L`, size: "xs", color: "#3a0a20", flex: 1, align: "end", weight: "bold" }
+        ]
+      });
+      bodyContents.push({ type: "separator", margin: "md" });
+    } else {
+      bodyContents.push({ type: "text", text: `หน้า ${pageIdx + 1}/${pages.length}`, size: "xxs", color: "#999999", margin: "sm", align: "center" });
+      bodyContents.push({ type: "separator", margin: "sm" });
+    }
+
+    for (const s of page) {
+      const st = frcStatus(s.frc, s.type, s.id);
+      bodyContents.push({
+        type: "box", layout: "horizontal", margin: "sm",
+        contents: [
+          { type: "text", text: st.emoji, size: "xxs", flex: 0 },
+          { type: "text", text: s.name, size: "xxs", color: "#1a1a2e", flex: 7, margin: "sm", wrap: true },
+          { type: "text", text: s.frc.toFixed(2), size: "xxs", color: st.color, flex: 2, align: "end", weight: "bold" }
+        ]
+      });
+    }
+
+    return {
       type: "bubble", size: "mega",
       header: {
         type: "box", layout: "vertical", backgroundColor: headerColor, paddingAll: "14px",
@@ -923,7 +927,13 @@ async function replyTypeDetail(replyToken, typeFilter) {
           { type: "button", action: { type: "uri", label: "แผนที่", uri: "https://piphatboribannukul.github.io/FRCfirebase/" }, height: "sm", style: "primary", color: headerColor, flex: 1 },
         ]
       }
-    }
+    };
+  });
+
+  return lineReply(replyToken, [{
+    type: "flex",
+    altText: `${title} — ${filtered.length} สถานี, FRC ${avg} mg/L`,
+    contents: bubbles.length === 1 ? bubbles[0] : { type: "carousel", contents: bubbles }
   }]);
 }
 
