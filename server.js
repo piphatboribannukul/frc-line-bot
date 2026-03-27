@@ -31,9 +31,9 @@ const SEND_IDS = ['SP01','SP02','SP03','SP11'];
 const PUMP_IDS = ['SP04','SP05','SP12'];
 
 const THRESHOLDS = {
-  send:    { watch: 1.0, low: 0.2, high: 3.0, label: 'สถานีสูบส่งน้ำ' },
-  pump:    { watch: 0.8, low: 0.2, high: 2.0, label: 'สถานีสูบจ่ายน้ำ' },
-  monitor: { watch: 0.4, low: 0.2, high: 2.0, label: 'สถานี Monitor' }
+  send:    { good: 1.0, watch: 0.8, low: 0.5, high: 3.0, label: 'สถานีสูบส่งน้ำ' },
+  pump:    { good: 0.8, watch: 0.5, low: 0.5, high: 2.0, label: 'สถานีสูบจ่ายน้ำ' },
+  monitor: { good: 0.4, watch: 0.2, low: 0.2, high: 2.0, label: 'สถานี Monitor' }
 };
 function getThreshold(type, id) {
   const sid = String(id || '').toUpperCase();
@@ -173,8 +173,8 @@ function thaiDate(date = new Date()) {
 function frcStatus(frc, type, id) {
   const t = getThreshold(type || 'monitor', id);
   if (frc > t.high)  return { emoji: '🟠', label: 'สูง', color: '#FF8F00' };
-  if (frc >= t.watch) return { emoji: '🟢', label: 'ดี', color: '#00C853' };
-  if (frc >= t.low)   return { emoji: '🟡', label: 'เฝ้าระวัง', color: '#FFD600' };
+  if (frc >= t.good)  return { emoji: '🟢', label: 'ดี', color: '#00C853' };
+  if (frc >= t.watch) return { emoji: '🟡', label: 'เฝ้าระวัง', color: '#FFD600' };
   return { emoji: '🔴', label: 'ต่ำ', color: '#FF1744' };
 }
 
@@ -895,8 +895,8 @@ async function replyCurrentStatus(replyToken) {
     for (const s of list) {
       const th = getThreshold(thType, s.id);
       if (s.frc > th.high) high++;
-      else if (s.frc >= th.watch) ok++;
-      else if (s.frc >= th.low) watch++;
+      else if (s.frc >= th.good) ok++;
+      else if (s.frc >= th.watch) watch++;
       else low++;
     }
     return { ok, watch, low, high, total: list.length };
@@ -934,7 +934,7 @@ async function replyCurrentStatus(replyToken) {
             { type: "text", text: `🟠${c.high}`, size: "xs", color: "#FF8F00", flex: 1 }
           ]
         },
-        { type: "text", text: `ดี >${th.watch} มก/ล. | ระวัง ${th.low}-${th.watch} | ต่ำ <${th.low} | สูง >${th.high} มก/ล.`, size: "xxs", color: "#bbaabb", margin: "sm", wrap: true }
+        { type: "text", text: `ดี >${th.good} | ระวัง ${th.watch}-${th.good} | ต่ำ <${th.low} | สูง >${th.high} มก/ล.`, size: "xxs", color: "#bbaabb", margin: "sm", wrap: true }
       ]
     };
   }
@@ -1042,8 +1042,8 @@ async function replyTypeDetail(replyToken, typeFilter) {
         type: "box", layout: "horizontal", margin: "md", paddingAll: "8px",
         backgroundColor: "#f8f4f6", cornerRadius: "6px",
         contents: [
-          { type: "text", text: `🟢>${th.watch}`, size: "xxs", color: "#00C853", flex: 1 },
-          { type: "text", text: `🟡${th.low}-${th.watch}`, size: "xxs", color: "#B8860B", flex: 1 },
+          { type: "text", text: `🟢>${th.good}`, size: "xxs", color: "#00C853", flex: 1 },
+          { type: "text", text: `🟡${th.watch}-${th.good}`, size: "xxs", color: "#B8860B", flex: 1 },
           { type: "text", text: `🔴<${th.low}`, size: "xxs", color: "#FF1744", flex: 1 },
           { type: "text", text: `🟠>${th.high}`, size: "xxs", color: "#FF8F00", flex: 1 }
         ]
@@ -1479,9 +1479,9 @@ function replyHelp(replyToken) {
           { type: "separator" },
           { type: "text", text: "🔔 แจ้งเตือนอัตโนมัติ", weight: "bold", size: "xs", color: "#3a0a20" },
           { type: "text", text: "ตรวจค่าทุก 10 นาที · แจ้งเมื่อผิดปกติ", size: "xxs", color: "#999999", wrap: true },
-          { type: "text", text: "สูบส่ง: ต่ำ<0.2 ระวัง<1.0 สูง>3.0 มก/ล.", size: "xxs", color: "#999999", wrap: true },
-          { type: "text", text: "สูบจ่าย: ต่ำ<0.2 ระวัง<0.8 สูง>2.0 มก/ล.", size: "xxs", color: "#999999", wrap: true },
-          { type: "text", text: "Monitor: ต่ำ<0.2 ระวัง<0.4 สูง>2.0 มก/ล.", size: "xxs", color: "#999999", wrap: true }
+          { type: "text", text: "สูบส่ง: ดี>1.0 ระวัง 0.8-1.0 ต่ำ<0.5 สูง>3.0", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "สูบจ่าย: ดี>0.8 ระวัง 0.5-0.8 ต่ำ<0.5 สูง>2.0", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "Monitor: ดี>0.4 ระวัง 0.2-0.4 ต่ำ<0.2 สูง>2.0", size: "xxs", color: "#999999", wrap: true }
         ]
       },
       footer: {
