@@ -193,18 +193,21 @@ async function checkAlerts() {
     const t = getThreshold(s.type, s.id);
 
     if (s.frc < t.low) {
+      // 🔴 ต่ำ (สูบส่ง <0.5, สูบจ่าย <0.5, monitor <0.2)
       const key = `${s.id}_low`;
       if (!alertedStations[key]) {
         alertedStations[key] = Date.now();
         alertList.push({ ...s, alertType: 'ต่ำ', threshold: t });
       }
     } else if (s.frc > t.high) {
+      // 🟠 สูง (สูบส่ง >3.0, สูบจ่าย >2.0, monitor >2.0)
       const key = `${s.id}_high`;
       if (!alertedStations[key]) {
         alertedStations[key] = Date.now();
         alertList.push({ ...s, alertType: 'สูง', threshold: t });
       }
     } else if (s.frc < t.watch) {
+      // 🟡 เฝ้าระวัง (สูบส่ง <0.8, สูบจ่าย <0.5, monitor <0.2)
       const key = `${s.id}_watch`;
       if (!alertedStations[key]) {
         alertedStations[key] = Date.now();
