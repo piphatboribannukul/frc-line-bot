@@ -171,7 +171,21 @@ async function lineReply(replyToken, messages) {
 }
 
 /** ส่ง Push Message ถึงทุกคนที่เคย interact (แทน Broadcast — ไม่จำกัดจำนวน) */
+/** ส่งข้อความถึงทุกคน — ใช้ Broadcast ก่อน, fallback Push ถ้าติด limit */
 async function lineBroadcast(messages) {
+  // ลอง Broadcast ก่อน (ส่งถึงทุกคนที่ add Bot โดยไม่ต้องเก็บ userId)
+  try {
+    await axios.post(`${LINE_API}/broadcast`, { messages }, {
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${LINE_TOKEN}` }
+    });
+    console.log('[Broadcast] ส่งสำเร็จ');
+    return;
+  } catch (err) {
+    const errMsg = err.response?.data?.message || err.message;
+    console.log(`[Broadcast] ไม่สำเร็จ: ${errMsg} — fallback เป็น Push`);
+  }
+
+  // Fallback: Push ทีละคนจาก NOTIFY_TARGETS
   if (NOTIFY_TARGETS.size === 0) {
     console.log('[Push] ไม่มี target — ข้ามการส่ง');
     return;
@@ -185,14 +199,13 @@ async function lineBroadcast(messages) {
       sent++;
     } catch (err) {
       const errMsg = err.response?.data?.message || err.message;
-      // ถ้า user บล็อก Bot → ลบออก
-      if (errMsg.includes('not found') || errMsg.includes('Invalid reply token')) {
+      if (errMsg.includes('not found') || errMsg.includes('blocked')) {
         NOTIFY_TARGETS.delete(targetId);
       }
       failed++;
     }
   }
-  console.log(`[Push] ส่ง ${sent} สำเร็จ, ${failed} ล้มเหลว (จาก ${sent + failed} targets)`);
+  console.log(`[Push fallback] ส่ง ${sent} สำเร็จ, ${failed} ล้มเหลว`);
 }
 
 /** จัดรูปแบบเวลาเป็นภาษาไทย */
@@ -539,6 +552,44 @@ async function handleTextMessage(replyToken, text, userId) {
       checkAlerts(); // เรียก checkAlerts แบบ async
     }
     return lineReply(replyToken, [{ type: 'text', text }]);
+  }
+
+  // ── คำสั่ง: ส่งแจ้งเตือน (Manual Push — ส่งถึงทุกคนทันที ไม่ผ่าน Broadcast)
+  if (/^ส่งแจ้งเตือน|^send alert/i.test(msg)) {
+    const sensors = await fetchSensors();
+    if (!sensors.length) return lineReply(replyToken, [{ type: 'text', text: '❌ ไม่สามารถดึงข้อมูลได้' }]);
+    
+    const alertList = [];
+    for (const s of sensors) {
+      if (s.frc <= 0) continue;
+      const t = getThreshold(s.type, s.id);
+      if (s.frc < t.low) alertList.push({ ...s, alertType: 'ต่ำ', threshold: t });
+      else if (s.frc > t.high) alertList.push({ ...s, alertType: 'สูง', threshold: t });
+      else if (s.frc < t.good) alertList.push({ ...s, alertType: 'เฝ้าระวัง', threshold: t });
+    }
+
+    if (alertList.length === 0) {
+      return lineReply(replyToken, [{ type: 'text', text: '✅ ทุกสถานีปกติ ไม่มีรายการแจ้งเตือน' }]);
+    }
+
+    // สร้าง Flex แจ้งเตือน
+    const flexMsg = buildAlertFlex(alertList);
+
+    // Push ส่งตรงทีละคน (ไม่ใช้ Broadcast — ข้าม monthly limit)
+    let sent = 0, failed = 0;
+    for (const targetId of NOTIFY_TARGETS) {
+      try {
+        await axios.post(`${LINE_API}/push`, { to: targetId, messages: [flexMsg] }, {
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${LINE_TOKEN}` }
+        });
+        sent++;
+      } catch (err) {
+        failed++;
+      }
+    }
+
+    const resultText = `📢 ส่งแจ้งเตือน Manual\n\nพบ ${alertList.length} สถานีผิดปกติ\nส่ง Push ให้ ${sent} คน สำเร็จ${failed ? ` (${failed} ล้มเหลว)` : ''}\n\n⚠️ Push นับ message limit เหมือน Broadcast\nเหลือ limit: ตรวจสอบที่ LINE OA Manager`;
+    return lineReply(replyToken, [{ type: 'text', text: resultText }]);
   }
 
   // ── คำสั่ง: สถานีต่ำ / alert
@@ -1543,9 +1594,10 @@ function replyHelp(replyToken) {
           makeHelpRow("🏭", "ดูสูบส่ง", "รายละเอียดสถานีสูบส่ง"),
           makeHelpRow("💧", "ดูสูบจ่าย", "รายละเอียดสถานีสูบจ่าย"),
           makeHelpRow("📡", "ดู monitor", "รายละเอียดสถานี Monitor"),
+          makeHelpRow("📢", "ส่งแจ้งเตือน", "ส่ง Push แจ้งเตือนถึงทุกคน (Manual)"),
           { type: "separator" },
           { type: "text", text: "🔔 แจ้งเตือนอัตโนมัติ", weight: "bold", size: "xs", color: "#3a0a20" },
-          { type: "text", text: "ตรวจค่าทุก 10 นาที · แจ้งเมื่อผิดปกติ", size: "xxs", color: "#999999", wrap: true },
+          { type: "text", text: "ตรวจค่าทุก 30 นาที · แจ้งเมื่อผิดปกติ", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "สูบส่ง: ดี>1.0 ระวัง 0.8-1.0 ต่ำ<0.5 สูง>3.0", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "สูบจ่าย: ดี>0.8 ระวัง 0.5-0.8 ต่ำ<0.5 สูง>2.0", size: "xxs", color: "#999999", wrap: true },
           { type: "text", text: "Monitor: ดี>0.4 ระวัง 0.2-0.4 ต่ำ<0.2 สูง>2.0", size: "xxs", color: "#999999", wrap: true }
@@ -1625,13 +1677,13 @@ app.get('/', (req, res) => {
 // Cron Jobs
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ตรวจค่าผิดปกติทุก 5 นาที
-cron.schedule('*/5 * * * *', () => {
+// ตรวจค่าผิดปกติทุก 30 นาที (ประหยัด message limit)
+cron.schedule('*/30 * * * *', () => {
   console.log(`[Cron] ตรวจ FRC alert — ${new Date().toISOString()}`);
   checkAlerts();
 }, { timezone: 'Asia/Bangkok' });
 
-// บันทึก history ลง Firebase ทุก 10 นาที
+// บันทึก history ลง Firebase ทุก 10 นาที (ไม่ใช้ message limit)
 cron.schedule('*/10 * * * *', async () => {
   try {
     const sensors = await fetchSensors();
@@ -1648,8 +1700,8 @@ cron.schedule('*/10 * * * *', async () => {
   }
 }, { timezone: 'Asia/Bangkok' });
 
-// สรุปรายงานประจำวัน 08:00 และ 17:00
-cron.schedule('0 8,17 * * *', () => {
+// สรุปรายงานประจำวัน 08:00 (1 ครั้ง/วัน ประหยัด limit)
+cron.schedule('0 8 * * *', () => {
   console.log(`[Cron] ส่งรายงานประจำวัน — ${new Date().toISOString()}`);
   sendDailyReport();
 }, { timezone: 'Asia/Bangkok' });
