@@ -12,7 +12,7 @@ const express = require('express');
 const axios   = require('axios');
 const cron    = require('node-cron');
 const { initializeApp }  = require('firebase/app');
-const { getDatabase, ref, get, onValue } = require('firebase/database');
+const { getDatabase, ref, get, push, onValue } = require('firebase/database');
 
 const app = express();
 app.use(express.json());
@@ -632,7 +632,8 @@ async function replyDailySummary(replyToken) {
       { type: "text", text: "📊 ตัวเลขสำคัญ", weight: "bold", size: "sm", color: "#3a0a20", margin: "lg" },
       makeStatRow("FRC เฉลี่ยทั้งวัน", `${avgFrc} มก/ล.`),
       makeStatRow("สูงสุด / ต่ำสุด", `${maxFrc} / ${minFrc} มก/ล.`),
-      makeStatRow("จำนวนตรวจวัด", `${totalReadings} ครั้ง`),
+      makeStatRow("สถานีที่ตรวจวัดได้", `${stationCount} สถานี`),
+      makeStatRow("ข้อมูลสะสมวันนี้", `${totalReadings} จุด`),
       { type: "separator", margin: "md" },
       // เฉลี่ยแยก type
       { type: "text", text: "🏭 เฉลี่ยตามประเภท (ปัจจุบัน)", weight: "bold", size: "sm", color: "#3a0a20", margin: "lg" },
@@ -1562,6 +1563,23 @@ app.get('/', (req, res) => {
 cron.schedule('*/5 * * * *', () => {
   console.log(`[Cron] ตรวจ FRC alert — ${new Date().toISOString()}`);
   checkAlerts();
+}, { timezone: 'Asia/Bangkok' });
+
+// บันทึก history ลง Firebase ทุก 10 นาที
+cron.schedule('*/10 * * * *', async () => {
+  try {
+    const sensors = await fetchSensors();
+    if (!sensors.length) return;
+    const ts = Date.now();
+    const promises = sensors.map(s => {
+      const code = String(s.id).replace(/[\/\.#\$\[\]]/g, '-');
+      return push(ref(db, `history/${code}`), { frc: s.frc, ts });
+    });
+    await Promise.all(promises);
+    console.log(`[Cron] บันทึก history ${sensors.length} สถานี`);
+  } catch(e) {
+    console.error('[Cron] History save error:', e.message);
+  }
 }, { timezone: 'Asia/Bangkok' });
 
 // สรุปรายงานประจำวัน 08:00 และ 17:00
