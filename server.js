@@ -12,7 +12,7 @@ const express = require('express');
 const axios   = require('axios');
 const cron    = require('node-cron');
 const { initializeApp }  = require('firebase/app');
-const { getDatabase, ref, get, push, onValue } = require('firebase/database');
+const { getDatabase, ref, get, set: fbSet, push, onValue } = require('firebase/database');
 
 const app = express();
 app.use(express.json());
@@ -53,8 +53,28 @@ function getStationType(s) {
 const FRC_MIN = 0.2;
 const FRC_HI  = 1.0;
 
-// Group ID / User IDs ที่จะรับแจ้งเตือน (เพิ่มจาก webhook follow event)
+// User IDs ที่จะรับแจ้งเตือน (เก็บลง Firebase เพื่อไม่หายเมื่อ restart)
 let NOTIFY_TARGETS = new Set();
+// โหลด targets จาก Firebase เมื่อ start
+async function loadTargets() {
+  try {
+    const snap = await get(ref(db, 'notify_targets'));
+    if (snap.exists()) {
+      const data = snap.val();
+      Object.keys(data).forEach(k => NOTIFY_TARGETS.add(data[k]));
+      console.log(`[Init] โหลด notify targets ${NOTIFY_TARGETS.size} คน`);
+    }
+  } catch(e) { console.error('[Init] Load targets error:', e.message); }
+}
+// บันทึก target ใหม่ลง Firebase
+async function saveTarget(targetId) {
+  if (!targetId || NOTIFY_TARGETS.has(targetId)) return;
+  NOTIFY_TARGETS.add(targetId);
+  try {
+    await fbSet(ref(db, `notify_targets/${targetId.replace(/[\/\.#\$\[\]]/g, '_')}`), targetId);
+    console.log(`[Target] เพิ่ม ${targetId.substring(0, 10)}...`);
+  } catch(e) { console.error('[SaveTarget]', e.message); }
+}
 // เก็บ state ว่าแจ้งเตือนไปแล้วหรือยัง (ป้องกันส่งซ้ำ)
 let alertedStations = {};
 // เก็บ state ว่า user กำลังรอพิมพ์ชื่อสถานที่
@@ -150,15 +170,29 @@ async function lineReply(replyToken, messages) {
   }
 }
 
-/** ส่ง Broadcast ถึงทุกคนที่ follow bot */
+/** ส่ง Push Message ถึงทุกคนที่เคย interact (แทน Broadcast — ไม่จำกัดจำนวน) */
 async function lineBroadcast(messages) {
-  try {
-    await axios.post(`${LINE_API}/broadcast`, { messages }, {
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${LINE_TOKEN}` }
-    });
-  } catch (err) {
-    console.error('[LINE Broadcast Error]', err.response?.data || err.message);
+  if (NOTIFY_TARGETS.size === 0) {
+    console.log('[Push] ไม่มี target — ข้ามการส่ง');
+    return;
   }
+  let sent = 0, failed = 0;
+  for (const targetId of NOTIFY_TARGETS) {
+    try {
+      await axios.post(`${LINE_API}/push`, { to: targetId, messages }, {
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${LINE_TOKEN}` }
+      });
+      sent++;
+    } catch (err) {
+      const errMsg = err.response?.data?.message || err.message;
+      // ถ้า user บล็อก Bot → ลบออก
+      if (errMsg.includes('not found') || errMsg.includes('Invalid reply token')) {
+        NOTIFY_TARGETS.delete(targetId);
+      }
+      failed++;
+    }
+  }
+  console.log(`[Push] ส่ง ${sent} สำเร็จ, ${failed} ล้มเหลว (จาก ${sent + failed} targets)`);
 }
 
 /** จัดรูปแบบเวลาเป็นภาษาไทย */
@@ -462,11 +496,6 @@ async function handleTextMessage(replyToken, text, userId) {
     return replyCurrentStatus(replyToken);
   }
 
-  // ── คำสั่ง: ตารางวัน / ตาราง / table
-  if (/ตารางวัน|ตาราง|table/i.test(msg)) {
-    return replyDailyTable(replyToken);
-  }
-
   // ── คำสั่ง: สรุปวัน / สรุปทั้งวัน / daily
   if (/สรุปวัน|สรุปทั้งวัน|daily|ประจำวัน/i.test(msg)) {
     return replyDailySummary(replyToken);
@@ -477,29 +506,39 @@ async function handleTextMessage(replyToken, text, userId) {
     return replyFullReport(replyToken);
   }
 
-  // ── คำสั่ง: ทดสอบแจ้งเตือน (ล้าง cooldown + เรียก checkAlerts)
+  // ── คำสั่ง: ทดสอบแจ้งเตือน (ล้าง cooldown + แสดงผลทันที)
   if (/ทดสอบแจ้งเตือน|test alert/i.test(msg)) {
     // ล้าง cooldown ทั้งหมด
     for (const k of Object.keys(alertedStations)) {
       delete alertedStations[k];
     }
-    // ดึงค่าปัจจุบันแสดงก่อน
+    // ดึงค่าปัจจุบัน
     const sensors = await fetchSensors();
-    const alerts = [];
+    const lowList = [], watchList = [], highList = [];
     for (const s of sensors) {
       if (s.frc <= 0) continue;
       const t = getThreshold(s.type, s.id);
-      const st = frcStatus(s.frc, s.type, s.id);
-      if (st.label !== 'ดี') {
-        alerts.push(`${st.emoji} ${s.name}: ${s.frc.toFixed(2)} มก/ล. (${st.label})`);
+      const typeName = getStationType(s) === 'send' ? 'สูบส่ง' : getStationType(s) === 'pump' ? 'สูบจ่าย' : 'Monitor';
+      if (s.frc < t.low) {
+        lowList.push(`  🔴 ${s.name}\n     FRC ${s.frc.toFixed(2)} มก/ล. (${typeName} เกณฑ์ <${t.low})`);
+      } else if (s.frc > t.high) {
+        highList.push(`  🟠 ${s.name}\n     FRC ${s.frc.toFixed(2)} มก/ล. (${typeName} เกณฑ์ >${t.high})`);
+      } else if (s.frc < t.good) {
+        watchList.push(`  🟡 ${s.name}\n     FRC ${s.frc.toFixed(2)} มก/ล. (${typeName} เกณฑ์ <${t.good})`);
       }
     }
-    const alertText = alerts.length > 0
-      ? `🔔 ล้าง cooldown แล้ว — พบ ${alerts.length} สถานีผิดปกติ:\n\n${alerts.join('\n')}\n\n⏳ รอ cron ตรวจรอบถัดไป (ทุก 5 นาที) จะแจ้งเตือนอัตโนมัติ`
-      : '✅ ล้าง cooldown แล้ว — ทุกสถานีปกติ ไม่มีรายการแจ้งเตือน';
-    // เรียก checkAlerts ทันที
-    checkAlerts();
-    return lineReply(replyToken, [{ type: 'text', text: alertText }]);
+    let text = `🔔 ทดสอบแจ้งเตือน\n${thaiDate()} ${thaiTime()} น.\nล้าง cooldown แล้ว\n`;
+    text += `\nสถานีทั้งหมด: ${sensors.filter(s=>s.frc>0).length} สถานี\n`;
+    if (lowList.length) text += `\n🔴 ต่ำ ${lowList.length} สถานี:\n${lowList.join('\n')}\n`;
+    if (watchList.length) text += `\n🟡 เฝ้าระวัง ${watchList.length} สถานี:\n${watchList.join('\n')}\n`;
+    if (highList.length) text += `\n🟠 สูง ${highList.length} สถานี:\n${highList.join('\n')}\n`;
+    if (!lowList.length && !watchList.length && !highList.length) {
+      text += '\n✅ ทุกสถานีปกติ ไม่มีรายการแจ้งเตือน';
+    } else {
+      text += `\n⏳ กำลังส่ง Broadcast แจ้งเตือน...`;
+      checkAlerts(); // เรียก checkAlerts แบบ async
+    }
+    return lineReply(replyToken, [{ type: 'text', text }]);
   }
 
   // ── คำสั่ง: สถานีต่ำ / alert
@@ -642,8 +681,8 @@ async function replyDailySummary(replyToken) {
     const bodyContents = [
       // ภาพรวมสถานะ
       {
-        type: "box", layout: "horizontal", margin: "md", paddingAll: "12px",
-        backgroundColor: "#f8f4f6", cornerRadius: "8px",
+        type: "box", layout: "horizontal", margin: "md",
+        
         contents: [
           { type: "text", text: overallEmoji, size: "3xl", flex: 0 },
           {
@@ -674,8 +713,8 @@ async function replyDailySummary(replyToken) {
     if (lowStationCodes.size > 0) {
       bodyContents.push({ type: "separator", margin: "lg" });
       bodyContents.push({
-        type: "box", layout: "horizontal", margin: "md", paddingAll: "8px",
-        backgroundColor: "#fff0f0", cornerRadius: "6px",
+        type: "box", layout: "horizontal", margin: "md",
+        
         contents: [
           { type: "text", text: "🔴", size: "sm", flex: 0 },
           {
@@ -692,8 +731,8 @@ async function replyDailySummary(replyToken) {
     // สถานีสูง
     if (highStationCodes.size > 0) {
       bodyContents.push({
-        type: "box", layout: "horizontal", margin: "sm", paddingAll: "8px",
-        backgroundColor: "#fff8f0", cornerRadius: "6px",
+        type: "box", layout: "horizontal", margin: "sm",
+        
         contents: [
           { type: "text", text: "🟠", size: "sm", flex: 0 },
           {
@@ -711,8 +750,8 @@ async function replyDailySummary(replyToken) {
     if (lowStationCodes.size === 0 && highStationCodes.size === 0) {
       bodyContents.push({ type: "separator", margin: "lg" });
       bodyContents.push({
-        type: "box", layout: "horizontal", margin: "md", paddingAll: "10px",
-        backgroundColor: "#f0fff0", cornerRadius: "6px",
+        type: "box", layout: "horizontal", margin: "md",
+        
         contents: [
           { type: "text", text: "✅", size: "sm", flex: 0 },
           { type: "text", text: "คลอรีนอยู่ในเกณฑ์ปกติตลอดทั้งวัน", size: "xs", weight: "bold", color: "#00C853", flex: 5, margin: "sm", wrap: true }
@@ -816,7 +855,7 @@ async function replyDailyTable(replyToken) {
     for (let i = 0; i < list.length; i++) {
       const s = list[i];
       const st = frcStatus(s.frc, s.type, s.id);
-      const shortName = s.name.length > 18 ? s.name.substring(0, 18) + '..' : s.name;
+      const shortName = (s.name || String(s.id)).length > 18 ? (s.name || String(s.id)).substring(0, 18) + '..' : (s.name || String(s.id));
       rows.push({
         type: "box", layout: "horizontal", margin: "sm",
         contents: [
@@ -833,7 +872,7 @@ async function replyDailyTable(replyToken) {
     rows.push({
       type: "box", layout: "horizontal", margin: "sm",
       contents: [
-        { type: "text", text: " ", size: "xxs", flex: 1 },
+        { type: "text", text: "-", size: "xxs", color: "#ffffff", flex: 1 },
         { type: "text", text: "เฉลี่ย", size: "xxs", color: "#3a0a20", flex: 6, weight: "bold" },
         { type: "text", text: `${avg}`, size: "xxs", color: "#3a0a20", flex: 2, align: "end", weight: "bold" }
       ]
@@ -944,8 +983,8 @@ async function replyCurrentStatus(replyToken) {
   function typeRow(label, c, thType) {
     const th = THRESHOLDS[thType] || THRESHOLDS.monitor;
     return {
-      type: "box", layout: "vertical", margin: "lg", paddingAll: "10px",
-      backgroundColor: "#f8f4f6", cornerRadius: "8px",
+      type: "box", layout: "vertical", margin: "lg",
+      
       contents: [
         {
           type: "box", layout: "horizontal",
@@ -1068,8 +1107,8 @@ async function replyTypeDetail(replyToken, typeFilter) {
     // หน้าแรกแสดงเกณฑ์
     if (pageIdx === 0) {
       bodyContents.push({
-        type: "box", layout: "horizontal", margin: "md", paddingAll: "8px",
-        backgroundColor: "#f8f4f6", cornerRadius: "6px",
+        type: "box", layout: "horizontal", margin: "md",
+        
         contents: [
           { type: "text", text: `🟢>${th.good}`, size: "xxs", color: "#00C853", flex: 1 },
           { type: "text", text: `🟡${th.watch}-${th.good}`, size: "xxs", color: "#B8860B", flex: 1 },
@@ -1496,7 +1535,6 @@ function replyHelp(replyToken) {
           makeHelpRow("📍", "ใกล้ฉัน", "ส่งตำแหน่ง → เปิดแผนที่ปักหมุด"),
           makeHelpRow("🗺️", "แผนที่", "เปิด Contour Map เต็มจอ"),
           makeHelpRow("📊", "สรุปวัน", "สรุปประจำวันแบบผู้บริหาร"),
-          makeHelpRow("📋", "ตาราง", "ตาราง FRC แยกตามเขตรับน้ำ"),
           { type: "separator" },
           { type: "text", text: "⌨️ คำสั่งเพิ่มเติม", weight: "bold", size: "sm", color: "#3a0a20" },
           makeHelpRow("📋", "สรุป", "รายงานสรุปทุกสถานี"),
@@ -1549,7 +1587,7 @@ app.post('/webhook', async (req, res) => {
       const source = event.source;
       if (source) {
         const targetId = source.groupId || source.roomId || source.userId;
-        if (targetId) NOTIFY_TARGETS.add(targetId);
+        if (targetId) saveTarget(targetId);
       }
 
       if (event.type === 'message' && event.message.type === 'text') {
@@ -1625,4 +1663,6 @@ app.listen(PORT, () => {
   console.log(`🚀 FRC Chlorine LINE Bot running on port ${PORT}`);
   console.log(`   Webhook URL: https://frc-line-bot-production.up.railway.app/webhook`);
   console.log(`   LINE Token: ${LINE_TOKEN.substring(0, 10)}...`);
+  // โหลด notify targets จาก Firebase
+  loadTargets();
 });
