@@ -206,8 +206,8 @@ async function checkAlerts() {
         alertedStations[key] = Date.now();
         alertList.push({ ...s, alertType: 'สูง', threshold: t });
       }
-    } else if (s.frc < t.watch) {
-      // 🟡 เฝ้าระวัง (สูบส่ง <0.8, สูบจ่าย <0.5, monitor <0.2)
+    } else if (s.frc < t.good) {
+      // 🟡 เฝ้าระวัง (สูบส่ง <1.0, สูบจ่าย <0.8, monitor <0.4)
       const key = `${s.id}_watch`;
       if (!alertedStations[key]) {
         alertedStations[key] = Date.now();
@@ -475,6 +475,31 @@ async function handleTextMessage(replyToken, text, userId) {
   // ── คำสั่ง: สรุป / รายงาน
   if (/สรุป|รายงาน|report|summary/i.test(msg)) {
     return replyFullReport(replyToken);
+  }
+
+  // ── คำสั่ง: ทดสอบแจ้งเตือน (ล้าง cooldown + เรียก checkAlerts)
+  if (/ทดสอบแจ้งเตือน|test alert/i.test(msg)) {
+    // ล้าง cooldown ทั้งหมด
+    for (const k of Object.keys(alertedStations)) {
+      delete alertedStations[k];
+    }
+    // ดึงค่าปัจจุบันแสดงก่อน
+    const sensors = await fetchSensors();
+    const alerts = [];
+    for (const s of sensors) {
+      if (s.frc <= 0) continue;
+      const t = getThreshold(s.type, s.id);
+      const st = frcStatus(s.frc, s.type, s.id);
+      if (st.label !== 'ดี') {
+        alerts.push(`${st.emoji} ${s.name}: ${s.frc.toFixed(2)} มก/ล. (${st.label})`);
+      }
+    }
+    const alertText = alerts.length > 0
+      ? `🔔 ล้าง cooldown แล้ว — พบ ${alerts.length} สถานีผิดปกติ:\n\n${alerts.join('\n')}\n\n⏳ รอ cron ตรวจรอบถัดไป (ทุก 5 นาที) จะแจ้งเตือนอัตโนมัติ`
+      : '✅ ล้าง cooldown แล้ว — ทุกสถานีปกติ ไม่มีรายการแจ้งเตือน';
+    // เรียก checkAlerts ทันที
+    checkAlerts();
+    return lineReply(replyToken, [{ type: 'text', text: alertText }]);
   }
 
   // ── คำสั่ง: สถานีต่ำ / alert
