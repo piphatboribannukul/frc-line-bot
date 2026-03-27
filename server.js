@@ -58,13 +58,48 @@ let NOTIFY_TARGETS = new Set();
 // โหลด targets จาก Firebase เมื่อ start
 async function loadTargets() {
   try {
+    // 1. โหลดจาก Firebase ก่อน
     const snap = await get(ref(db, 'notify_targets'));
     if (snap.exists()) {
       const data = snap.val();
       Object.keys(data).forEach(k => NOTIFY_TARGETS.add(data[k]));
-      console.log(`[Init] โหลด notify targets ${NOTIFY_TARGETS.size} คน`);
     }
+    console.log(`[Init] โหลด notify targets จาก Firebase: ${NOTIFY_TARGETS.size} คน`);
+
+    // 2. ดึง follower ทั้งหมดจาก LINE API (ไม่ต้องรอให้เพื่อนทักมาก่อน)
+    await fetchAllFollowers();
+    console.log(`[Init] รวม notify targets ทั้งหมด: ${NOTIFY_TARGETS.size} คน`);
   } catch(e) { console.error('[Init] Load targets error:', e.message); }
+}
+
+// ดึง follower ทั้งหมดจาก LINE Get Followers API
+async function fetchAllFollowers() {
+  try {
+    let next = null;
+    do {
+      const url = next
+        ? `https://api.line.me/v2/bot/followers/ids?start=${next}`
+        : 'https://api.line.me/v2/bot/followers/ids';
+      const res = await axios.get(url, {
+        headers: { 'Authorization': `Bearer ${LINE_TOKEN}` },
+        timeout: 10000
+      });
+      const ids = res.data.userIds || [];
+      for (const id of ids) {
+        if (!NOTIFY_TARGETS.has(id)) {
+          NOTIFY_TARGETS.add(id);
+          // บันทึกลง Firebase ด้วย
+          try {
+            await fbSet(ref(db, `notify_targets/${id.replace(/[\/\.#\$\[\]]/g, '_')}`), id);
+          } catch(e) {}
+        }
+      }
+      next = res.data.next || null;
+      console.log(`[Followers] ดึงได้ ${ids.length} คน${next ? ' (มีหน้าถัดไป)' : ''}`);
+    } while (next);
+  } catch(e) {
+    console.log(`[Followers] ไม่สามารถดึง follower list: ${e.response?.data?.message || e.message}`);
+  }
 }
 // บันทึก target ใหม่ลง Firebase
 async function saveTarget(targetId) {
