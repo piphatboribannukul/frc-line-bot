@@ -977,9 +977,9 @@ async function replyCurrentStatus(replyToken) {
           {
             type: "box", layout: "horizontal", spacing: "xs",
             contents: [
-              { type: "button", action: { type: "message", label: "สูบส่ง", text: "ดูสูบส่ง" }, height: "sm", style: "secondary", flex: 1 },
-              { type: "button", action: { type: "message", label: "สูบจ่าย", text: "ดูสูบจ่าย" }, height: "sm", style: "secondary", flex: 1 },
-              { type: "button", action: { type: "message", label: "Monitor", text: "ดู monitor" }, height: "sm", style: "secondary", flex: 1 },
+              { type: "button", action: { type: "message", label: "สูบส่ง", text: "ดูสูบส่ง" }, height: "sm", style: "primary", color: "#3b82f6", flex: 1 },
+              { type: "button", action: { type: "message", label: "สูบจ่าย", text: "ดูสูบจ่าย" }, height: "sm", style: "primary", color: "#10b981", flex: 1 },
+              { type: "button", action: { type: "message", label: "Monitor", text: "ดู monitor" }, height: "sm", style: "primary", color: "#8b5cf6", flex: 1 },
             ]
           },
           {
