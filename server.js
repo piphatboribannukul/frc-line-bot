@@ -872,27 +872,24 @@ async function replyCurrentStatus(replyToken) {
   const avgMon = monitorStations.length ? (monitorStations.reduce((a,s)=>a+s.frc,0)/monitorStations.length).toFixed(2) : '-';
 
   function typeRow(emoji, label, count, avg, thType) {
-    const th = THRESHOLDS[thType];
     return {
-      type: "box", layout: "vertical", margin: "md",
+      type: "box", layout: "vertical", margin: "sm",
       paddingAll: "12px", cornerRadius: "10px", backgroundColor: COLORS.bgCard,
       borderWidth: "1px", borderColor: COLORS.border,
       contents: [
         {
           type: "box", layout: "horizontal",
           contents: [
-            { type: "text", text: `${emoji} ${label}`, size: "sm", weight: "bold", color: COLORS.textPrimary, flex: 5 },
-            { type: "text", text: `${avg} mg/L`, size: "sm", color: COLORS.accent, weight: "bold", flex: 3, align: "end" }
+            { type: "text", text: `${emoji} ${label}`, size: "sm", weight: "bold", color: COLORS.textPrimary, flex: 4 },
+            { type: "text", text: `${avg}`, size: "md", color: COLORS.accent, weight: "bold", flex: 0 },
+            { type: "text", text: " mg/L", size: "xxs", color: COLORS.textMuted, flex: 0, gravity: "bottom", margin: "xs" }
           ]
         },
         {
-          type: "box", layout: "horizontal", margin: "sm", spacing: "xs",
+          type: "box", layout: "horizontal", margin: "sm",
           contents: [
-            { type: "text", text: `🟢${count.ok}`, size: "xxs", color: COLORS.good, flex: 1 },
-            { type: "text", text: `🟡${count.watch}`, size: "xxs", color: COLORS.warn, flex: 1 },
-            { type: "text", text: `🔴${count.low}`, size: "xxs", color: COLORS.bad, flex: 1 },
-            { type: "text", text: `🟠${count.high}`, size: "xxs", color: COLORS.high, flex: 1 },
-            { type: "text", text: `${count.total} สถานี`, size: "xxs", color: COLORS.textMuted, flex: 2, align: "end" },
+            { type: "text", text: `✅${count.ok}  ⚠️${count.watch}  ❌${count.low}  🔶${count.high}`, size: "xxs", color: COLORS.textSecondary, flex: 5 },
+            { type: "text", text: `${count.total} สถานี`, size: "xxs", color: COLORS.textMuted, flex: 0 },
           ]
         },
       ]
@@ -902,15 +899,15 @@ async function replyCurrentStatus(replyToken) {
   const bodyContents = [
     // Overall
     {
-      type: "box", layout: "horizontal", paddingAll: "14px",
+      type: "box", layout: "horizontal", paddingAll: "12px",
       cornerRadius: "10px", backgroundColor: overallBg,
       contents: [
-        { type: "text", text: overallEmoji, size: "3xl", flex: 0 },
+        { type: "text", text: overallEmoji, size: "xxl", flex: 0, gravity: "center" },
         {
-          type: "box", layout: "vertical", flex: 5, margin: "lg",
+          type: "box", layout: "vertical", flex: 5, margin: "md",
           contents: [
-            { type: "text", text: `ภาพรวม: ${overallText}`, size: "md", weight: "bold", color: COLORS.textPrimary },
-            { type: "text", text: `ปกติ ${allOk}/${total} สถานี (${normalPct}%)`, size: "xs", color: COLORS.textSecondary, margin: "xs" },
+            { type: "text", text: `ภาพรวม: ${overallText}`, size: "sm", weight: "bold", color: COLORS.textPrimary },
+            { type: "text", text: `ปกติ ${allOk}/${total} สถานี (${normalPct}%)`, size: "xxs", color: COLORS.textSecondary, margin: "xs" },
             makeProgressBar(normalPct, normalPct >= 80 ? COLORS.good : normalPct >= 50 ? COLORS.warn : COLORS.bad),
           ]
         }
@@ -920,10 +917,10 @@ async function replyCurrentStatus(replyToken) {
     {
       type: "box", layout: "horizontal", margin: "md", spacing: "sm",
       contents: [
-        makeCountBox("🟢 ดี", allOk, COLORS.good),
-        makeCountBox("🟡 ระวัง", allWatch, COLORS.warn),
-        makeCountBox("🔴 ต่ำ", allLow, COLORS.bad),
-        makeCountBox("🟠 สูง", allHigh, COLORS.high),
+        makeCountBox("ดี", allOk, COLORS.good),
+        makeCountBox("ระวัง", allWatch, COLORS.warn),
+        makeCountBox("ต่ำ", allLow, COLORS.bad),
+        makeCountBox("สูง", allHigh, COLORS.high),
       ]
     },
     { type: "separator", margin: "md" },
@@ -966,16 +963,15 @@ async function replyCurrentStatus(replyToken) {
           {
             type: "box", layout: "horizontal", spacing: "sm",
             contents: [
-              { type: "button", action: { type: "message", label: "🏭 สูบส่ง", text: "ดูสูบส่ง" }, height: "sm", style: "secondary", flex: 1 },
-              { type: "button", action: { type: "message", label: "💧 สูบจ่าย", text: "ดูสูบจ่าย" }, height: "sm", style: "secondary", flex: 1 },
-              { type: "button", action: { type: "message", label: "📡 Monitor", text: "ดู monitor" }, height: "sm", style: "secondary", flex: 1 },
+              { type: "button", action: { type: "message", label: "สูบส่ง", text: "ดูสูบส่ง" }, height: "sm", style: "secondary", flex: 1 },
+              { type: "button", action: { type: "message", label: "สูบจ่าย", text: "ดูสูบจ่าย" }, height: "sm", style: "secondary", flex: 1 },
             ]
           },
           {
             type: "box", layout: "horizontal", spacing: "sm",
             contents: [
-              { type: "button", action: { type: "message", label: "📊 สรุปวัน", text: "สรุปวัน" }, height: "sm", style: "primary", color: COLORS.accent, flex: 1 },
-              { type: "button", action: { type: "uri", label: "🗺️ แผนที่", uri: CONTOUR_URL }, height: "sm", style: "primary", color: "#0f172a", flex: 1 },
+              { type: "button", action: { type: "message", label: "สรุปวัน", text: "สรุปวัน" }, height: "sm", style: "primary", color: COLORS.accent, flex: 1 },
+              { type: "button", action: { type: "uri", label: "แผนที่", uri: CONTOUR_URL }, height: "sm", style: "primary", color: "#0f172a", flex: 1 },
             ]
           }
         ]
