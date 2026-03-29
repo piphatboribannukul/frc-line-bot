@@ -882,11 +882,11 @@ async function replyCurrentStatus(replyToken) {
       backgroundColor: bgTint || COLORS.bgCard,
       contents: [
         {
-          type: "box", layout: "vertical", flex: 0, width: "44px", height: "44px",
+          type: "box", layout: "vertical", flex: 0, width: "56px", height: "56px",
           justifyContent: "center", alignItems: "center",
           contents: [{
             type: "image", url: iconUrl,
-            size: "44px", aspectMode: "fit", aspectRatio: "1:1"
+            size: "56px", aspectMode: "fit", aspectRatio: "1:1"
           }]
         },
         {
