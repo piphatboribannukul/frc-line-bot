@@ -803,13 +803,18 @@ async function handleTextMessage(replyToken, text, userId) {
     return replyFlyToPlace(replyToken, msg);
   }
 
+  // ── เมนู → Carousel Flex พร้อมรูป
+  if (/^เมนู$|^menu$/i.test(msg)) {
+    return replyMenuCarousel(replyToken);
+  }
+
   // ── help
-  if (/help|ช่วย|วิธีใช้|คำสั่ง|menu|เมนู/i.test(msg)) {
+  if (/help|ช่วย|วิธีใช้|คำสั่ง/i.test(msg)) {
     return replyHelp(replyToken);
   }
 
-  // ── ไม่ตรงคำสั่ง → แนะนำ
-  return replyHelp(replyToken);
+  // ── ไม่ตรงคำสั่ง → Carousel เมนู
+  return replyMenuCarousel(replyToken);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1712,6 +1717,86 @@ async function replyFlyToPlace(replyToken, place) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📱 Carousel Menu — รูป + ปุ่มกด เลื่อนซ้ายขวา (ส่งเมื่อพิมพ์ "เมนู")
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function replyMenuCarousel(replyToken) {
+  const menuItems = [
+    {
+      image: IMAGES.bannerMap,
+      title: "🗺️ แผนที่ Contour",
+      desc: "ดูแผนที่คลอรีนแบบ Real-Time",
+      action: { type: "uri", label: "เปิดแผนที่", uri: CONTOUR_URL },
+      color: "#0f172a"
+    },
+    {
+      image: IMAGES.bannerFRC,
+      title: "💧 คลอรีน FRC",
+      desc: "ค่า FRC ปัจจุบัน แยกสูบส่ง/สูบจ่าย/Monitor",
+      action: { type: "message", label: "ดูค่าคลอรีน", text: "คลอรีน" },
+      color: "#0f172a"
+    },
+    {
+      image: IMAGES.bannerEC,
+      title: "⚡ ค่า EC",
+      desc: "ค่าการนำไฟฟ้า ทุกสถานี",
+      action: { type: "message", label: "ดูค่า EC", text: "ec" },
+      color: "#1e3a5f"
+    },
+    {
+      image: IMAGES.bannerDaily,
+      title: "🔍 ค้นหาสถานี",
+      desc: "ค้นหาสถานีตามชื่อ หรือพิมพ์ชื่อสถานที่",
+      action: { type: "message", label: "ค้นหา", text: "ค้นหาสถานที่" },
+      color: "#14532d"
+    },
+    {
+      image: IMAGES.bannerAlert,
+      title: "📍 ใกล้ฉัน",
+      desc: "ส่งตำแหน่ง ดูสถานีและค่าคลอรีนรอบตัว",
+      action: { type: "message", label: "ส่งตำแหน่ง", text: "ใกล้ฉัน" },
+      color: "#831843"
+    },
+  ];
+
+  const bubbles = menuItems.map(item => ({
+    type: "bubble",
+    size: "micro",
+    hero: {
+      type: "image",
+      url: item.image,
+      size: "full",
+      aspectRatio: "20:13",
+      aspectMode: "cover",
+      action: item.action
+    },
+    body: {
+      type: "box", layout: "vertical", paddingAll: "12px", spacing: "sm",
+      contents: [
+        { type: "text", text: item.title, weight: "bold", size: "sm", color: COLORS.textPrimary, wrap: true },
+        { type: "text", text: item.desc, size: "xxs", color: COLORS.textSecondary, wrap: true },
+      ]
+    },
+    footer: {
+      type: "box", layout: "vertical", paddingAll: "10px",
+      contents: [{
+        type: "button",
+        action: item.action,
+        style: "primary",
+        color: item.color,
+        height: "sm"
+      }]
+    }
+  }));
+
+  return lineReply(replyToken, withQuickReply([{
+    type: "flex",
+    altText: "📱 เมนู FRC Bot — เลื่อนเพื่อดูทั้งหมด",
+    contents: { type: "carousel", contents: bubbles }
+  }]));
+}
+
 function makeHelpRow(emoji, cmd, desc) {
   return {
     type: "box", layout: "horizontal", spacing: "md", margin: "sm",
@@ -1764,35 +1849,48 @@ function replyHelp(replyToken) {
 
 app.post('/setup-richmenu', async (req, res) => {
   try {
+    // Layout: 2500x1686
+    // Row 1 (3 ปุ่ม): แผนที่ | คลอรีน | EC
+    // Row 2 (2 ปุ่ม): ค้นหาสถานี | ใกล้ฉัน
     const richMenu = {
       size: { width: 2500, height: 1686 },
       selected: true,
       name: "FRC Bot Menu v12",
       chatBarText: "💧 เมนู FRC",
       areas: [
-        // Row 1: คลอรีน | EC | สรุปวัน
-        { bounds: { x: 0, y: 0, width: 833, height: 843 }, action: { type: "message", text: "คลอรีน" } },
-        { bounds: { x: 834, y: 0, width: 833, height: 843 }, action: { type: "message", text: "ec" } },
-        { bounds: { x: 1667, y: 0, width: 833, height: 843 }, action: { type: "message", text: "สรุปวัน" } },
-        // Row 2: ค้นหาสถานที่ | ใกล้ฉัน | แผนที่
-        { bounds: { x: 0, y: 843, width: 833, height: 843 }, action: { type: "message", text: "ค้นหาสถานที่" } },
-        { bounds: { x: 834, y: 843, width: 833, height: 843 }, action: { type: "message", text: "ใกล้ฉัน" } },
-        { bounds: { x: 1667, y: 843, width: 833, height: 843 }, action: { type: "uri", uri: CONTOUR_URL } },
+        // Row 1
+        { bounds: { x: 0, y: 0, width: 833, height: 843 }, action: { type: "uri", label: "แผนที่", uri: CONTOUR_URL } },
+        { bounds: { x: 833, y: 0, width: 834, height: 843 }, action: { type: "message", label: "คลอรีน", text: "คลอรีน" } },
+        { bounds: { x: 1667, y: 0, width: 833, height: 843 }, action: { type: "message", label: "EC", text: "ec" } },
+        // Row 2
+        { bounds: { x: 0, y: 843, width: 1250, height: 843 }, action: { type: "message", label: "ค้นหาสถานี", text: "ค้นหาสถานที่" } },
+        { bounds: { x: 1250, y: 843, width: 1250, height: 843 }, action: { type: "message", label: "ใกล้ฉัน", text: "ใกล้ฉัน" } },
       ]
     };
 
+    // Step 1: สร้าง Rich Menu
     const createRes = await axios.post('https://api.line.me/v2/bot/richmenu', richMenu, {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${LINE_TOKEN}` }
     });
+    const richMenuId = createRes.data.richMenuId;
+    console.log(`[RichMenu] สร้างสำเร็จ: ${richMenuId}`);
+
+    // Step 2: Set เป็น default สำหรับ user ทุกคน
+    await axios.post(`https://api.line.me/v2/bot/user/all/richmenu/${richMenuId}`, {}, {
+      headers: { 'Authorization': `Bearer ${LINE_TOKEN}` }
+    });
+    console.log(`[RichMenu] ตั้งเป็น default สำเร็จ`);
 
     res.json({
       success: true,
-      richMenuId: createRes.data.richMenuId,
-      message: 'Rich Menu สร้างสำเร็จ! ต้อง upload รูปและ set default เพิ่ม',
-      next_steps: [
-        `POST https://api-data.line.me/v2/bot/richmenu/${createRes.data.richMenuId}/content (upload รูป 2500x1686)`,
-        `POST https://api.line.me/v2/bot/user/all/richmenu/${createRes.data.richMenuId} (set เป็น default)`
-      ]
+      richMenuId,
+      message: 'Rich Menu สร้าง + ตั้ง default สำเร็จ!',
+      note: 'ต้อง upload รูป 2500x1686 เพิ่ม ผ่าน API หรือ LINE OA Manager',
+      upload_url: `POST https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`,
+      layout: {
+        row1: ['🗺️ แผนที่ Contour', '💧 คลอรีน FRC', '⚡ ค่า EC'],
+        row2: ['🔍 ค้นหาสถานี', '📍 ใกล้ฉัน']
+      }
     });
   } catch (err) {
     res.status(500).json({ error: err.response?.data || err.message });
