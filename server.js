@@ -455,9 +455,9 @@ function makeStatRow(label, value) {
 function makeCountBox(label, count, color) {
   return {
     type: "box", layout: "vertical", flex: 1, alignItems: "center",
-    paddingAll: "6px", cornerRadius: "8px", backgroundColor: COLORS.bgCard,
+    paddingAll: "4px", cornerRadius: "6px", backgroundColor: COLORS.bgCard,
     contents: [
-      { type: "text", text: String(count), size: "lg", weight: "bold", color, align: "center" },
+      { type: "text", text: String(count), size: "md", weight: "bold", color, align: "center" },
       { type: "text", text: label, size: "xxs", color: COLORS.textMuted, align: "center" }
     ]
   };
@@ -874,19 +874,19 @@ async function replyCurrentStatus(replyToken) {
   const avgPump = plantStations.length ? (plantStations.reduce((a,s)=>a+s.frc,0)/plantStations.length).toFixed(2) : '-';
   const avgMon = monitorStations.length ? (monitorStations.reduce((a,s)=>a+s.frc,0)/monitorStations.length).toFixed(2) : '-';
 
-  function typeRow(iconUrl, label, count, avg, bgTint) {
+  function typeRow(iconUrl, label, count, avg, bgTint, thType) {
+    const th = THRESHOLDS[thType] || THRESHOLDS.monitor;
     return {
-      type: "box", layout: "horizontal", margin: "sm",
-      paddingAll: "10px", cornerRadius: "10px",
+      type: "box", layout: "horizontal", margin: "xs",
+      paddingAll: "8px", paddingStart: "10px", cornerRadius: "8px",
       backgroundColor: bgTint || COLORS.bgCard,
-      borderWidth: "1px", borderColor: COLORS.border,
       contents: [
         {
-          type: "box", layout: "vertical", flex: 0, width: "36px", height: "36px",
+          type: "box", layout: "vertical", flex: 0, width: "44px", height: "44px",
           justifyContent: "center", alignItems: "center",
           contents: [{
             type: "image", url: iconUrl,
-            size: "36px", aspectMode: "fit", aspectRatio: "1:1"
+            size: "44px", aspectMode: "fit", aspectRatio: "1:1"
           }]
         },
         {
@@ -895,11 +895,13 @@ async function replyCurrentStatus(replyToken) {
             {
               type: "box", layout: "horizontal",
               contents: [
-                { type: "text", text: label, size: "sm", weight: "bold", color: COLORS.textPrimary, flex: 4 },
-                { type: "text", text: `${avg} mg/L`, size: "sm", color: COLORS.accent, weight: "bold", flex: 0 }
+                { type: "text", text: label, size: "sm", weight: "bold", color: COLORS.textPrimary, flex: 3 },
+                { type: "text", text: `${avg}`, size: "md", color: COLORS.accent, weight: "bold", flex: 0 },
+                { type: "text", text: " mg/L", size: "xxs", color: COLORS.textMuted, flex: 0, gravity: "bottom" }
               ]
             },
-            { type: "text", text: `✅${count.ok} ⚠️${count.watch} ❌${count.low} 🔶${count.high}  ·  ${count.total} สถานี`, size: "xxs", color: COLORS.textSecondary, margin: "xs" },
+            { type: "text", text: `ดี≥${th.good}  ระวัง${th.watch}-${th.good}  ต่ำ<${th.low}  สูง>${th.high}`, size: "xxs", color: COLORS.textMuted, margin: "none" },
+            { type: "text", text: `✅${count.ok} ⚠️${count.watch} ❌${count.low} 🔶${count.high}  ·  ${count.total} สถานี`, size: "xxs", color: COLORS.textSecondary, margin: "none" },
           ]
         }
       ]
@@ -909,15 +911,15 @@ async function replyCurrentStatus(replyToken) {
   const bodyContents = [
     // Overall
     {
-      type: "box", layout: "horizontal", paddingAll: "12px",
-      cornerRadius: "10px", backgroundColor: overallBg,
+      type: "box", layout: "horizontal", paddingAll: "10px",
+      cornerRadius: "8px", backgroundColor: overallBg,
       contents: [
-        { type: "text", text: overallEmoji, size: "xxl", flex: 0, gravity: "center" },
+        { type: "text", text: overallEmoji, size: "xl", flex: 0, gravity: "center" },
         {
-          type: "box", layout: "vertical", flex: 5, margin: "md",
+          type: "box", layout: "vertical", flex: 5, margin: "sm",
           contents: [
             { type: "text", text: `ภาพรวม: ${overallText}`, size: "sm", weight: "bold", color: COLORS.textPrimary },
-            { type: "text", text: `ปกติ ${allOk}/${total} สถานี (${normalPct}%)`, size: "xxs", color: COLORS.textSecondary, margin: "xs" },
+            { type: "text", text: `ปกติ ${allOk}/${total} สถานี (${normalPct}%)`, size: "xxs", color: COLORS.textSecondary },
             makeProgressBar(normalPct, normalPct >= 80 ? COLORS.good : normalPct >= 50 ? COLORS.warn : COLORS.bad),
           ]
         }
@@ -939,22 +941,22 @@ async function replyCurrentStatus(replyToken) {
     makeStatRow("สูงสุด / ต่ำสุด", `${maxS ? maxS.frc.toFixed(2) : '-'} / ${minS ? minS.frc.toFixed(2) : '-'} mg/L`),
     { type: "separator", margin: "sm" },
     // Type breakdown
-    typeRow(IMAGES.iconSend, "สูบส่ง", sc, avgSend, "#f0f7ff"),
-    typeRow(IMAGES.iconPump, "สูบจ่าย", pc, avgPump, "#f0fdf4"),
-    typeRow(IMAGES.iconMonitor, "Monitor", mc, avgMon, "#fdf4ff"),
+    typeRow(IMAGES.iconSend, "สูบส่ง", sc, avgSend, "#eef6ff", 'send'),
+    typeRow(IMAGES.iconPump, "สูบจ่าย", pc, avgPump, "#eefbf3", 'pump'),
+    typeRow(IMAGES.iconMonitor, "Monitor", mc, avgMon, "#f8eeff", 'monitor'),
   ];
 
   // Alert stations
   if (alertStations.length > 0) {
-    bodyContents.push({ type: "separator", margin: "md" });
+    bodyContents.push({ type: "separator", margin: "xs" });
     bodyContents.push({
-      type: "box", layout: "vertical", margin: "md",
-      paddingAll: "10px", cornerRadius: "8px", backgroundColor: COLORS.bgWarm,
+      type: "box", layout: "vertical", margin: "xs",
+      paddingAll: "8px", cornerRadius: "6px", backgroundColor: COLORS.bgWarm,
       contents: [
-        { type: "text", text: "⚠️ ต้องติดตาม", size: "xs", weight: "bold", color: COLORS.bad },
+        { type: "text", text: "⚠️ ต้องติดตาม", size: "xxs", weight: "bold", color: COLORS.bad },
         ...alertStations.map(s => {
           const st = frcStatus(s.frc, s.type, s.id);
-          return { type: "text", text: `${st.emoji} ${(s.name||s.id).substring(0,22)} — ${s.frc.toFixed(2)} mg/L`, size: "xxs", color: COLORS.textSecondary, margin: "xs", wrap: true };
+          return { type: "text", text: `${st.emoji} ${(s.name||s.id).substring(0,22)} — ${s.frc.toFixed(2)} mg/L`, size: "xxs", color: COLORS.textSecondary, wrap: true };
         })
       ]
     });
@@ -966,12 +968,12 @@ async function replyCurrentStatus(replyToken) {
     contents: {
       type: "bubble", size: "mega",
       header: makeHeader('💧 คลอรีนอิสระคงเหลือ (FRC)', `Real-Time — ${thaiDate()} ${thaiTime()} น.`, COLORS.headerDark, IMAGES.logo),
-      body: { type: "box", layout: "vertical", paddingAll: "12px", paddingTop: "10px", contents: bodyContents },
+      body: { type: "box", layout: "vertical", paddingAll: "10px", paddingTop: "8px", contents: bodyContents },
       footer: {
-        type: "box", layout: "vertical", paddingAll: "8px", spacing: "sm",
+        type: "box", layout: "vertical", paddingAll: "6px", spacing: "xs",
         contents: [
           {
-            type: "box", layout: "horizontal", spacing: "sm",
+            type: "box", layout: "horizontal", spacing: "xs",
             contents: [
               { type: "button", action: { type: "message", label: "สูบส่ง", text: "ดูสูบส่ง" }, height: "sm", style: "secondary", flex: 1 },
               { type: "button", action: { type: "message", label: "สูบจ่าย", text: "ดูสูบจ่าย" }, height: "sm", style: "secondary", flex: 1 },
@@ -979,9 +981,9 @@ async function replyCurrentStatus(replyToken) {
             ]
           },
           {
-            type: "box", layout: "horizontal", spacing: "sm",
+            type: "box", layout: "horizontal", spacing: "xs",
             contents: [
-              { type: "button", action: { type: "message", label: "คลอรีน", text: "คลอรีน" }, height: "sm", style: "primary", color: COLORS.accent, flex: 1 },
+              { type: "button", action: { type: "message", label: "สรุปวัน", text: "สรุปวัน" }, height: "sm", style: "primary", color: COLORS.accent, flex: 1 },
               { type: "button", action: { type: "uri", label: "แผนที่", uri: CONTOUR_URL }, height: "sm", style: "primary", color: "#0f172a", flex: 1 },
             ]
           }
