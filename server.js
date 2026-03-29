@@ -1724,45 +1724,45 @@ async function replyFlyToPlace(replyToken, place) {
 function replyMenuCarousel(replyToken) {
   const menuItems = [
     {
-      image: IMAGES.bannerMap,
-      title: "🗺️ แผนที่ Contour",
-      desc: "ดูแผนที่คลอรีนแบบ Real-Time",
+      image: `${IMG_BASE}/menu-contour.png`,
+      title: "🗺️ Contour Map",
+      desc: "แผนที่คลอรีน Real-Time",
       action: { type: "uri", label: "เปิดแผนที่", uri: CONTOUR_URL },
-      color: "#0f172a"
+      btnColor: "#0f172a"
     },
     {
-      image: IMAGES.bannerFRC,
-      title: "💧 คลอรีน FRC",
-      desc: "ค่า FRC ปัจจุบัน แยกสูบส่ง/สูบจ่าย/Monitor",
+      image: `${IMG_BASE}/menu-frc.png`,
+      title: "💧 Chlorine FRC",
+      desc: "ค่า FRC สูบส่ง/สูบจ่าย/Monitor",
       action: { type: "message", label: "ดูค่าคลอรีน", text: "คลอรีน" },
-      color: "#0f172a"
+      btnColor: "#e11d48"
     },
     {
-      image: IMAGES.bannerEC,
-      title: "⚡ ค่า EC",
-      desc: "ค่าการนำไฟฟ้า ทุกสถานี",
+      image: `${IMG_BASE}/menu-ec.png`,
+      title: "⚡ Conductivity (EC)",
+      desc: "ค่าการนำไฟฟ้าทุกสถานี",
       action: { type: "message", label: "ดูค่า EC", text: "ec" },
-      color: "#1e3a5f"
+      btnColor: "#1e3a5f"
     },
     {
-      image: IMAGES.bannerDaily,
-      title: "🔍 ค้นหาสถานี",
-      desc: "ค้นหาสถานีตามชื่อ หรือพิมพ์ชื่อสถานที่",
+      image: `${IMG_BASE}/menu-search.png`,
+      title: "🔍 Search Station",
+      desc: "ค้นหาสถานี ดูกราฟ ดูพิกัด",
       action: { type: "message", label: "ค้นหา", text: "ค้นหาสถานที่" },
-      color: "#14532d"
+      btnColor: "#14532d"
     },
     {
-      image: IMAGES.bannerAlert,
-      title: "📍 ใกล้ฉัน",
-      desc: "ส่งตำแหน่ง ดูสถานีและค่าคลอรีนรอบตัว",
+      image: `${IMG_BASE}/menu-nearby.png`,
+      title: "📍 Nearby",
+      desc: "ส่งตำแหน่ง ดูสถานีรอบตัวคุณ",
       action: { type: "message", label: "ส่งตำแหน่ง", text: "ใกล้ฉัน" },
-      color: "#831843"
+      btnColor: "#92400e"
     },
   ];
 
   const bubbles = menuItems.map(item => ({
     type: "bubble",
-    size: "micro",
+    size: "kilo",
     hero: {
       type: "image",
       url: item.image,
@@ -1772,19 +1772,20 @@ function replyMenuCarousel(replyToken) {
       action: item.action
     },
     body: {
-      type: "box", layout: "vertical", paddingAll: "12px", spacing: "sm",
+      type: "box", layout: "vertical",
+      paddingAll: "16px", paddingTop: "14px", paddingBottom: "8px", spacing: "sm",
       contents: [
-        { type: "text", text: item.title, weight: "bold", size: "sm", color: COLORS.textPrimary, wrap: true },
-        { type: "text", text: item.desc, size: "xxs", color: COLORS.textSecondary, wrap: true },
+        { type: "text", text: item.title, weight: "bold", size: "lg", color: COLORS.textPrimary },
+        { type: "text", text: item.desc, size: "xs", color: COLORS.textSecondary, wrap: true },
       ]
     },
     footer: {
-      type: "box", layout: "vertical", paddingAll: "10px",
+      type: "box", layout: "vertical", paddingAll: "12px", paddingTop: "4px",
       contents: [{
         type: "button",
         action: item.action,
         style: "primary",
-        color: item.color,
+        color: item.btnColor,
         height: "sm"
       }]
     }
