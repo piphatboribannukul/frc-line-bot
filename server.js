@@ -40,16 +40,18 @@ const CONTOUR_URL  = process.env.CONTOUR_URL || 'https://piphatboribannukul.gith
 // ═══════════════════════════════════════════════════════════════════════════════
 const IMG_BASE = process.env.IMG_BASE_URL || 'https://piphatboribannukul.github.io/FRCfirebase/img';
 
+const IMG_CACHE_BUSTER = 'v2';
+
 const IMAGES = {
-  logo:       `${IMG_BASE}/logo-frc-64.png`,
-  bannerFRC:  `${IMG_BASE}/banner-frc.png`,
-  bannerEC:   `${IMG_BASE}/banner-ec.png`,
-  bannerMap:  `${IMG_BASE}/banner-map.png`,
-  bannerAlert:`${IMG_BASE}/banner-alert.png`,
-  bannerDaily:`${IMG_BASE}/banner-daily.png`,
-  iconSend:   `${IMG_BASE}/icon-send.png`,
-  iconPump:   `${IMG_BASE}/icon-pump.png`,
-  iconMonitor:`${IMG_BASE}/icon-monitor.png`,
+  logo:       `${IMG_BASE}/logo-frc-64.png?${IMG_CACHE_BUSTER}`,
+  bannerFRC:  `${IMG_BASE}/banner-frc.png?${IMG_CACHE_BUSTER}`,
+  bannerEC:   `${IMG_BASE}/banner-ec.png?${IMG_CACHE_BUSTER}`,
+  bannerMap:  `${IMG_BASE}/banner-map.png?${IMG_CACHE_BUSTER}`,
+  bannerAlert:`${IMG_BASE}/banner-alert.png?${IMG_CACHE_BUSTER}`,
+  bannerDaily:`${IMG_BASE}/banner-daily.png?${IMG_CACHE_BUSTER}`,
+  iconSend:   `${IMG_BASE}/icon-send.png?${IMG_CACHE_BUSTER}`,
+  iconPump:   `${IMG_BASE}/icon-pump.png?${IMG_CACHE_BUSTER}`,
+  iconMonitor:`${IMG_BASE}/icon-monitor.png?${IMG_CACHE_BUSTER}`,
 };
 
 // 🗺️ Static Map URL — ใช้ OpenStreetMap Static Map API (ฟรี ไม่ต้อง key)
