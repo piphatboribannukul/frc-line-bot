@@ -941,9 +941,9 @@ async function replyCurrentStatus(replyToken) {
     makeStatRow("สูงสุด / ต่ำสุด", `${maxS ? maxS.frc.toFixed(2) : '-'} / ${minS ? minS.frc.toFixed(2) : '-'} mg/L`),
     { type: "separator", margin: "sm" },
     // Type breakdown
-    typeRow(IMAGES.iconSend, "สูบส่ง", sc, avgSend, "#eef6ff", 'send'),
-    typeRow(IMAGES.iconPump, "สูบจ่าย", pc, avgPump, "#eefbf3", 'pump'),
-    typeRow(IMAGES.iconMonitor, "Monitor", mc, avgMon, "#f8eeff", 'monitor'),
+    typeRow(IMAGES.iconSend, "สูบส่ง", sc, avgSend, "#dbeafe", 'send'),
+    typeRow(IMAGES.iconPump, "สูบจ่าย", pc, avgPump, "#d1fae5", 'pump'),
+    typeRow(IMAGES.iconMonitor, "Monitor", mc, avgMon, "#ede9fe", 'monitor'),
   ];
 
   // Alert stations
