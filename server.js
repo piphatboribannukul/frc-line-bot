@@ -47,6 +47,9 @@ const IMAGES = {
   bannerMap:  `${IMG_BASE}/banner-map.png`,
   bannerAlert:`${IMG_BASE}/banner-alert.png`,
   bannerDaily:`${IMG_BASE}/banner-daily.png`,
+  iconSend:   `${IMG_BASE}/icon-send.png`,
+  iconPump:   `${IMG_BASE}/icon-pump.png`,
+  iconMonitor:`${IMG_BASE}/icon-monitor.png`,
 };
 
 // 🗺️ Static Map URL — ใช้ OpenStreetMap Static Map API (ฟรี ไม่ต้อง key)
@@ -452,10 +455,10 @@ function makeStatRow(label, value) {
 function makeCountBox(label, count, color) {
   return {
     type: "box", layout: "vertical", flex: 1, alignItems: "center",
-    paddingAll: "8px", cornerRadius: "8px", backgroundColor: COLORS.bgCard,
+    paddingAll: "6px", cornerRadius: "8px", backgroundColor: COLORS.bgCard,
     contents: [
-      { type: "text", text: String(count), size: "xl", weight: "bold", color, align: "center" },
-      { type: "text", text: label, size: "xxs", color: COLORS.textMuted, align: "center", margin: "xs" }
+      { type: "text", text: String(count), size: "lg", weight: "bold", color, align: "center" },
+      { type: "text", text: label, size: "xxs", color: COLORS.textMuted, align: "center" }
     ]
   };
 }
@@ -871,27 +874,34 @@ async function replyCurrentStatus(replyToken) {
   const avgPump = plantStations.length ? (plantStations.reduce((a,s)=>a+s.frc,0)/plantStations.length).toFixed(2) : '-';
   const avgMon = monitorStations.length ? (monitorStations.reduce((a,s)=>a+s.frc,0)/monitorStations.length).toFixed(2) : '-';
 
-  function typeRow(emoji, label, count, avg, thType) {
+  function typeRow(iconUrl, label, count, avg, bgTint) {
     return {
-      type: "box", layout: "vertical", margin: "sm",
-      paddingAll: "12px", cornerRadius: "10px", backgroundColor: COLORS.bgCard,
+      type: "box", layout: "horizontal", margin: "sm",
+      paddingAll: "10px", cornerRadius: "10px",
+      backgroundColor: bgTint || COLORS.bgCard,
       borderWidth: "1px", borderColor: COLORS.border,
       contents: [
         {
-          type: "box", layout: "horizontal",
-          contents: [
-            { type: "text", text: `${emoji} ${label}`, size: "sm", weight: "bold", color: COLORS.textPrimary, flex: 4 },
-            { type: "text", text: `${avg}`, size: "md", color: COLORS.accent, weight: "bold", flex: 0 },
-            { type: "text", text: " mg/L", size: "xxs", color: COLORS.textMuted, flex: 0, gravity: "bottom", margin: "xs" }
-          ]
+          type: "box", layout: "vertical", flex: 0, width: "36px", height: "36px",
+          justifyContent: "center", alignItems: "center",
+          contents: [{
+            type: "image", url: iconUrl,
+            size: "36px", aspectMode: "fit", aspectRatio: "1:1"
+          }]
         },
         {
-          type: "box", layout: "horizontal", margin: "sm",
+          type: "box", layout: "vertical", flex: 5, margin: "md", justifyContent: "center",
           contents: [
-            { type: "text", text: `✅${count.ok}  ⚠️${count.watch}  ❌${count.low}  🔶${count.high}`, size: "xxs", color: COLORS.textSecondary, flex: 5 },
-            { type: "text", text: `${count.total} สถานี`, size: "xxs", color: COLORS.textMuted, flex: 0 },
+            {
+              type: "box", layout: "horizontal",
+              contents: [
+                { type: "text", text: label, size: "sm", weight: "bold", color: COLORS.textPrimary, flex: 4 },
+                { type: "text", text: `${avg} mg/L`, size: "sm", color: COLORS.accent, weight: "bold", flex: 0 }
+              ]
+            },
+            { type: "text", text: `✅${count.ok} ⚠️${count.watch} ❌${count.low} 🔶${count.high}  ·  ${count.total} สถานี`, size: "xxs", color: COLORS.textSecondary, margin: "xs" },
           ]
-        },
+        }
       ]
     };
   }
@@ -915,7 +925,7 @@ async function replyCurrentStatus(replyToken) {
     },
     // Count boxes
     {
-      type: "box", layout: "horizontal", margin: "md", spacing: "sm",
+      type: "box", layout: "horizontal", margin: "sm", spacing: "sm",
       contents: [
         makeCountBox("ดี", allOk, COLORS.good),
         makeCountBox("ระวัง", allWatch, COLORS.warn),
@@ -923,15 +933,15 @@ async function replyCurrentStatus(replyToken) {
         makeCountBox("สูง", allHigh, COLORS.high),
       ]
     },
-    { type: "separator", margin: "md" },
+    { type: "separator", margin: "sm" },
     // Stats
     makeStatRow("FRC เฉลี่ย", `${avgFrc} mg/L`),
     makeStatRow("สูงสุด / ต่ำสุด", `${maxS ? maxS.frc.toFixed(2) : '-'} / ${minS ? minS.frc.toFixed(2) : '-'} mg/L`),
-    { type: "separator", margin: "md" },
+    { type: "separator", margin: "sm" },
     // Type breakdown
-    typeRow("🏭", "สูบส่ง", sc, avgSend, 'send'),
-    typeRow("💧", "สูบจ่าย", pc, avgPump, 'pump'),
-    typeRow("📡", "Monitor", mc, avgMon, 'monitor'),
+    typeRow(IMAGES.iconSend, "สูบส่ง", sc, avgSend, "#f0f7ff"),
+    typeRow(IMAGES.iconPump, "สูบจ่าย", pc, avgPump, "#f0fdf4"),
+    typeRow(IMAGES.iconMonitor, "Monitor", mc, avgMon, "#fdf4ff"),
   ];
 
   // Alert stations
@@ -956,21 +966,22 @@ async function replyCurrentStatus(replyToken) {
     contents: {
       type: "bubble", size: "mega",
       header: makeHeader('💧 คลอรีนอิสระคงเหลือ (FRC)', `Real-Time — ${thaiDate()} ${thaiTime()} น.`, COLORS.headerDark, IMAGES.logo),
-      body: { type: "box", layout: "vertical", paddingAll: "14px", contents: bodyContents },
+      body: { type: "box", layout: "vertical", paddingAll: "12px", paddingTop: "10px", contents: bodyContents },
       footer: {
-        type: "box", layout: "vertical", paddingAll: "10px", spacing: "sm",
+        type: "box", layout: "vertical", paddingAll: "8px", spacing: "sm",
         contents: [
           {
             type: "box", layout: "horizontal", spacing: "sm",
             contents: [
               { type: "button", action: { type: "message", label: "สูบส่ง", text: "ดูสูบส่ง" }, height: "sm", style: "secondary", flex: 1 },
               { type: "button", action: { type: "message", label: "สูบจ่าย", text: "ดูสูบจ่าย" }, height: "sm", style: "secondary", flex: 1 },
+              { type: "button", action: { type: "message", label: "Monitor", text: "ดู monitor" }, height: "sm", style: "secondary", flex: 1 },
             ]
           },
           {
             type: "box", layout: "horizontal", spacing: "sm",
             contents: [
-              { type: "button", action: { type: "message", label: "สรุปวัน", text: "สรุปวัน" }, height: "sm", style: "primary", color: COLORS.accent, flex: 1 },
+              { type: "button", action: { type: "message", label: "คลอรีน", text: "คลอรีน" }, height: "sm", style: "primary", color: COLORS.accent, flex: 1 },
               { type: "button", action: { type: "uri", label: "แผนที่", uri: CONTOUR_URL }, height: "sm", style: "primary", color: "#0f172a", flex: 1 },
             ]
           }
