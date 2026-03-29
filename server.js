@@ -35,6 +35,55 @@ const LINE_API     = 'https://api.line.me/v2/bot/message';
 const MWA_API      = 'https://twqonline.mwa.co.th/TWQMSServicepublic/api/mwaonmobile/getStations';
 const CONTOUR_URL  = process.env.CONTOUR_URL || 'https://piphatboribannukul.github.io/FRCfirebase/';
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🖼️ IMAGE CONFIG — GitHub Pages (ฟรี ไม่ต้อง install อะไร)
+// ═══════════════════════════════════════════════════════════════════════════════
+const IMG_BASE = process.env.IMG_BASE_URL || 'https://piphatboribannukul.github.io/FRCfirebase/img';
+
+const IMAGES = {
+  logo:       `${IMG_BASE}/logo-frc-64.png`,
+  bannerFRC:  `${IMG_BASE}/banner-frc.png`,
+  bannerEC:   `${IMG_BASE}/banner-ec.png`,
+  bannerMap:  `${IMG_BASE}/banner-map.png`,
+  bannerAlert:`${IMG_BASE}/banner-alert.png`,
+  bannerDaily:`${IMG_BASE}/banner-daily.png`,
+};
+
+// 🗺️ Static Map URL — ใช้ OpenStreetMap Static Map API (ฟรี ไม่ต้อง key)
+function staticMapUrl(lat, lon, zoom, width, height, markers) {
+  // ใช้ staticmap.openstreetmap.de (ฟรี, ไม่ต้อง API key)
+  const w = width || 600;
+  const h = height || 300;
+  const z = zoom || 14;
+  let url = `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lon}&zoom=${z}&size=${w}x${h}&maptype=mapnik`;
+  // เพิ่ม markers
+  if (markers && markers.length > 0) {
+    for (const m of markers) {
+      url += `&markers=${m.lat},${m.lon},${m.color || 'red'}`;
+    }
+  }
+  return url;
+}
+
+// สร้าง static map สำหรับกลุ่มสถานี (overview Bangkok)
+function overviewMapUrl() {
+  return staticMapUrl(13.78, 100.55, 11, 1040, 585, []);
+}
+
+// สร้าง static map สำหรับสถานีเดี่ยว
+function stationMapUrl(lat, lon) {
+  return staticMapUrl(lat, lon, 15, 1040, 585, [{ lat, lon, color: 'red' }]);
+}
+
+// สร้าง static map สำหรับตำแหน่ง user + สถานีใกล้
+function nearbyMapUrl(userLat, userLon, stations) {
+  const markers = [
+    { lat: userLat, lon: userLon, color: 'blue' },
+    ...stations.slice(0, 3).map(s => ({ lat: s.lat, lon: s.lon, color: 'red' }))
+  ];
+  return staticMapUrl(userLat, userLon, 14, 1040, 585, markers);
+}
+
 // 🔒 Firebase Config จาก env vars (fallback เป็นค่าเดิมเพื่อ backward compatibility)
 const firebaseConfig = {
   apiKey:            process.env.FB_API_KEY            || "AIzaSyC0iyNwGCOIh-kbp6xDfijWBWKiE4iI_Lk",
@@ -334,15 +383,52 @@ const COLORS = {
   high:         '#ea580c',
 };
 
-function makeHeader(title, subtitle, bgColor) {
+function makeHeader(title, subtitle, bgColor, logoUrl) {
+  const contents = [];
+  if (logoUrl) {
+    // Header with logo icon
+    contents.push({
+      type: "box", layout: "horizontal", spacing: "md",
+      contents: [
+        {
+          type: "box", layout: "vertical", flex: 0, width: "36px", height: "36px",
+          cornerRadius: "8px", backgroundColor: "#ffffff22",
+          justifyContent: "center", alignItems: "center",
+          contents: [{
+            type: "image", url: logoUrl,
+            size: "28px", aspectMode: "fit", aspectRatio: "1:1"
+          }]
+        },
+        {
+          type: "box", layout: "vertical", flex: 5,
+          contents: [
+            { type: "text", text: title, color: "#ffffff", weight: "bold", size: "lg", wrap: true },
+            ...(subtitle ? [{ type: "text", text: subtitle, color: "#ffffff99", size: "xs", margin: "xs", wrap: true }] : [])
+          ]
+        }
+      ]
+    });
+  } else {
+    contents.push({ type: "text", text: title, color: "#ffffff", weight: "bold", size: "lg", wrap: true });
+    if (subtitle) contents.push({ type: "text", text: subtitle, color: "#ffffff99", size: "xs", margin: "sm", wrap: true });
+  }
   return {
     type: "box", layout: "vertical",
     backgroundColor: bgColor || COLORS.headerDark,
     paddingAll: "18px",
-    contents: [
-      { type: "text", text: title, color: "#ffffff", weight: "bold", size: "lg", wrap: true },
-      ...(subtitle ? [{ type: "text", text: subtitle, color: "#ffffff99", size: "xs", margin: "sm", wrap: true }] : [])
-    ]
+    contents
+  };
+}
+
+// 🖼️ Hero section — รูปใหญ่ด้านบน bubble
+function makeHero(imageUrl, aspectRatio) {
+  return {
+    type: "image",
+    url: imageUrl,
+    size: "full",
+    aspectRatio: aspectRatio || "20:13",
+    aspectMode: "cover",
+    action: { type: "uri", label: "เปิดแผนที่", uri: CONTOUR_URL }
   };
 }
 
@@ -479,10 +565,12 @@ function buildAlertFlex(alerts) {
     altText: `🚨 แจ้งเตือน: ค่าคลอรีนผิดปกติ ${alerts.length} สถานี`,
     contents: {
       type: "bubble", size: "mega",
+      hero: makeHero(IMAGES.bannerAlert),
       header: makeHeader(
         `🚨 แจ้งเตือนค่าคลอรีน`,
         `${thaiDate()} ${thaiTime()} น. — พบ ${alerts.length} สถานีผิดปกติ`,
-        COLORS.headerRed
+        COLORS.headerRed,
+        IMAGES.logo
       ),
       body: { type: "box", layout: "vertical", paddingAll: "14px", contents: bodyContents },
       footer: makeFooterButtons([
@@ -573,7 +661,8 @@ function buildDailyReportFlex({ total, good, mid, low, avgFrc, minS, maxS, lowSt
     altText: `📊 สรุปคลอรีน — ดี ${good} / ผ่าน ${mid} / ต่ำ ${low}`,
     contents: {
       type: "bubble", size: "mega",
-      header: makeHeader('📋 รายงานคุณภาพน้ำ', `${thaiDate()} — FRC Daily Report`, COLORS.headerDark),
+      hero: makeHero(IMAGES.bannerDaily),
+      header: makeHeader('📋 รายงานคุณภาพน้ำ', `${thaiDate()} — FRC Daily Report`, COLORS.headerDark, IMAGES.logo),
       body: { type: "box", layout: "vertical", paddingAll: "14px", contents: bodyContents },
       footer: makeFooterButtons([
         { label: '🗺️ แผนที่', uri: CONTOUR_URL, primary: true },
@@ -875,7 +964,8 @@ async function replyCurrentStatus(replyToken) {
     altText: `💧 FRC ${avgFrc} mg/L — ${overallEmoji}${overallText}`,
     contents: {
       type: "bubble", size: "mega",
-      header: makeHeader('💧 คลอรีนอิสระคงเหลือ (FRC)', `Real-Time — ${thaiDate()} ${thaiTime()} น.`, COLORS.headerDark),
+      hero: makeHero(IMAGES.bannerFRC),
+      header: makeHeader('💧 คลอรีนอิสระคงเหลือ (FRC)', `Real-Time — ${thaiDate()} ${thaiTime()} น.`, COLORS.headerDark, IMAGES.logo),
       body: { type: "box", layout: "vertical", paddingAll: "14px", contents: bodyContents },
       footer: {
         type: "box", layout: "vertical", paddingAll: "10px", spacing: "sm",
@@ -975,7 +1065,8 @@ async function replyECStatus(replyToken) {
     altText: `⚡ EC ${avgEC} µS/cm — ${ecStations.length} สถานี`,
     contents: {
       type: "bubble", size: "mega",
-      header: makeHeader('⚡ ค่าการนำไฟฟ้า (EC)', `${thaiDate()} ${thaiTime()} น.`, COLORS.headerBlue),
+      hero: makeHero(IMAGES.bannerEC),
+      header: makeHeader('⚡ ค่าการนำไฟฟ้า (EC)', `${thaiDate()} ${thaiTime()} น.`, COLORS.headerBlue, IMAGES.logo),
       body: { type: "box", layout: "vertical", paddingAll: "14px", contents: bodyContents },
       footer: makeFooterButtons([
         { label: '💧 ดูคลอรีน', text: 'คลอรีน', primary: true, color: COLORS.accent },
@@ -1531,7 +1622,8 @@ async function handleLocationMessage(replyToken, lat, lon) {
     type: "flex", altText: `📍 สถานีใกล้คุณ — ${nearest[0]?.name || '-'}`,
     contents: {
       type: "bubble", size: "mega",
-      header: makeHeader('📍 สถานีใกล้ตำแหน่งคุณ', '3 สถานีที่ใกล้ที่สุด', COLORS.headerDark),
+      hero: makeHero(nearbyMapUrl(lat, lon, nearest)),
+      header: makeHeader('📍 สถานีใกล้ตำแหน่งคุณ', '3 สถานีที่ใกล้ที่สุด', COLORS.headerDark, IMAGES.logo),
       body: { type: "box", layout: "vertical", paddingAll: "14px", contents: rows },
       footer: {
         type: "box", layout: "vertical", paddingAll: "12px",
@@ -1561,7 +1653,8 @@ async function replyFlyToPlace(replyToken, place) {
         type: "flex", altText: `📍 ${s.name} — FRC ${s.frc.toFixed(2)} mg/L`,
         contents: {
           type: "bubble", size: "mega",
-          header: makeHeader(`📍 ${s.name}`, `${s.id} | ${s.area || ''} ${s.branch || ''}`.trim(), COLORS.headerDark),
+          hero: makeHero(stationMapUrl(s.lat, s.lon)),
+          header: makeHeader(`📍 ${s.name}`, `${s.id} | ${s.area || ''} ${s.branch || ''}`.trim(), COLORS.headerDark, IMAGES.logo),
           body: {
             type: "box", layout: "vertical", paddingAll: "14px",
             contents: [
@@ -1620,7 +1713,8 @@ async function replyFlyToPlace(replyToken, place) {
       type: "flex", altText: `🗺️ ${place} — เปิดในแผนที่ Contour`,
       contents: {
         type: "bubble", size: "mega",
-        header: makeHeader(`🗺️ ${place}`, null, COLORS.headerDark),
+        hero: makeHero(stationMapUrl(lat, lon)),
+        header: makeHeader(`🗺️ ${place}`, null, COLORS.headerDark, IMAGES.logo),
         body: { type: "box", layout: "vertical", paddingAll: "14px", contents: bodyContents },
         footer: {
           type: "box", layout: "vertical", paddingAll: "12px",
@@ -1650,7 +1744,8 @@ function replyHelp(replyToken) {
     type: "flex", altText: "📖 วิธีใช้งาน FRC Bot",
     contents: {
       type: "bubble", size: "mega",
-      header: makeHeader('💧 FRC Chlorine Bot v12', 'ระบบติดตามคลอรีนอิสระคงเหลือ', COLORS.headerDark),
+      hero: makeHero(IMAGES.bannerMap),
+      header: makeHeader('💧 FRC Chlorine Bot v12', 'ระบบติดตามคลอรีนอิสระคงเหลือ', COLORS.headerDark, IMAGES.logo),
       body: {
         type: "box", layout: "vertical", paddingAll: "14px", spacing: "md",
         contents: [
