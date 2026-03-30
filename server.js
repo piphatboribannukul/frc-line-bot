@@ -998,7 +998,7 @@ async function replyCurrentStatus(replyToken) {
           {
             type: "box", layout: "horizontal", spacing: "xs",
             contents: [
-              { type: "button", action: { type: "message", label: "สรุปวัน", text: "สรุปวัน" }, height: "sm", style: "primary", color: COLORS.accent, flex: 1 },
+              { type: "button", action: { type: "message", label: "📋 ตาราง", text: "ตารางวัน" }, height: "sm", style: "primary", color: COLORS.accent, flex: 1 },
               { type: "button", action: { type: "uri", label: "แผนที่", uri: CONTOUR_URL }, height: "sm", style: "primary", color: "#0f172a", flex: 1 },
             ]
           }
