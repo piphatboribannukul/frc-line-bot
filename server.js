@@ -1263,23 +1263,63 @@ async function replyDailyTable(replyToken) {
   const sensors = await fetchSensors();
   if (!sensors.length) return lineReply(replyToken, withQuickReply([{ type: 'text', text: '❌ ไม่สามารถดึงข้อมูลได้' }]));
 
+  // ── Zone Groups: จับคู่ตามเส้นทางน้ำจริง (ROOT_SOURCE_MAP) ──
+  // match ด้วยชื่อสถานี (substring) เพื่อความแม่นยำ
   const ZONE_GROUPS = [
-    { key: 'TR1', title: 'สูบส่งน้ำบางเขน 1 (TR1)', color: '#831843', match: s => s.area === 'TR1' || s.id === 'SP01' || (s.name||'').includes('TR1') },
-    { key: 'TR2', title: 'สูบส่งน้ำบางเขน 2 (TR2)', color: '#831843', match: s => s.area === 'TR2' || s.id === 'SP02' || (s.name||'').includes('TR2') },
-    { key: 'TR3', title: 'สูบส่งน้ำบางเขน 3 (TR3)', color: '#831843', match: s => s.area === 'TR3' || s.id === 'SP03' || (s.name||'').includes('TR3') },
-    { key: 'Dis1', title: 'สูบจ่ายน้ำบางเขน 1 (Dis1)', color: '#1e3a5f', match: s => /Dis\s*1/i.test(s.area) || s.id === 'SP04' || (s.name||'').includes('Dis1') },
-    { key: 'Dis2', title: 'สูบจ่ายน้ำบางเขน 2 (Dis2)', color: '#1e3a5f', match: s => /Dis\s*2/i.test(s.area) || s.id === 'SP05' || (s.name||'').includes('Dis2') },
-    { key: 'MDIS', title: 'สูบจ่ายน้ำมหาสวัสดิ์', color: '#581c87', match: s => /มหาสวัสดิ์|MDIS|MTR/i.test(s.area) || ['SP11','SP12'].includes(s.id) || /มหาสวัสดิ์/i.test(s.name) },
-    { key: 'THO', title: 'โรงผลิตน้ำธนบุรี', color: '#92400e', match: s => /ธนบุรี/i.test(s.area) || s.id === 'SP06' || /ธนบุรี/i.test(s.name) },
-    { key: 'SAM', title: 'โรงผลิตน้ำสามเสน', color: '#065f46', match: s => /สามเสน/i.test(s.area) || ['SP07','SP08','SP09','SP10'].includes(s.id) || /สามเสน/i.test(s.name) },
+    {
+      key: 'TR1', title: 'TR1 — สูบส่งน้ำบางเขน 1', color: '#831843',
+      stations: ['TR1', 'ลุมพินี', 'พหลโยธิน', 'สำโรง', 'ทุ่งมหาเมฆ', 'ศิครินทร์', 'หาดอมรา', 'เอจีซี แฟลทกลาส', 'สมุทรปราการ', 'โรงไฟฟ้าพระนครใต้']
+    },
+    {
+      key: 'TR2', title: 'TR2 — สูบส่งน้ำบางเขน 2', color: '#831843',
+      stations: ['TR2', 'ลาดพร้าว', 'คลองเตย', 'โอสถสภา', 'เกร็ดตระการ', 'ศูนย์วิทยาศาสตร์เพื่อการศึกษา', 'สุขุมวิท']
+    },
+    {
+      key: 'TR3', title: 'TR3 — สูบส่งน้ำบางเขน 3', color: '#831843',
+      stations: ['TR3', 'บางพลี', 'มีนบุรี', 'ลาดกระบัง', 'คลองด่าน', 'บางปู', 'มหาจักรออโตพาร์ท', 'บางชัน', 'เทียนฟ้า', 'สุวรรณภูมิ', 'หัวเฉียว']
+    },
+    {
+      key: 'MH', title: 'MH — สูบส่งน้ำมหาสวัสดิ์', color: '#581c87',
+      stations: ['สูบส่งน้ำมหาสวัสดิ์', 'MTR', 'ราษฎร์บูรณะ', 'เพชรเกษม', 'ท่าพระ', 'พระจอมเกล้าธนบุรี', 'บางขุนเทียน', 'ศูนย์กีฬาเฉลิมพระเกียรติ', 'เอเชียอาคเนย์', 'เรือนจำพิเศษธนบุรี', 'คนชราบางแค', 'สวัสดิการสังคมผู้สูงอายุ']
+    },
+    {
+      key: 'MDIS', title: 'MDIS — สูบจ่ายน้ำมหาสวัสดิ์', color: '#581c87',
+      stations: ['สูบจ่ายน้ำมหาสวัสดิ์', 'MDIS', 'บดินทรเดชา', 'บางบัวทอง', 'ไทรน้อย', 'ราชวินิต', 'ตั้งพิรุฬห์ธรรม']
+    },
+    {
+      key: 'Dis1', title: 'Dis1 — สูบจ่ายน้ำบางเขน 1', color: '#1e3a5f',
+      stations: ['Dis1', 'นนทบุรี', 'กองพันทหารสื่อสาร', 'กองบัญชาการกองทัพไทย', 'ทหารขนส่ง', 'เตรียมอุดมศึกษาน้อมเกล้า']
+    },
+    {
+      key: 'Dis2', title: 'Dis2 — สูบจ่ายน้ำบางเขน 2', color: '#1e3a5f',
+      stations: ['Dis2', 'ซีจีเอช', 'สายไหม', 'ภูมิพลอดุลยเดช']
+    },
+    {
+      key: 'THO', title: 'โรงงานผลิตน้ำธนบุรี', color: '#92400e',
+      stations: ['ธนบุรี', 'ศิริราช']
+    },
+    {
+      key: 'SAM', title: 'โรงงานผลิตน้ำสามเสน', color: '#065f46',
+      stations: ['สามเสน', 'ดุสิต', 'จิตรลดา']
+    },
   ];
+
+  // match: ถ้าชื่อสถานีหรือ id มีคำใดคำหนึ่งใน stations[]
+  function matchZone(s, zone) {
+    const name = (s.name || '').toLowerCase();
+    const id = String(s.id || '').toUpperCase();
+    return zone.stations.some(keyword => {
+      const kw = keyword.toLowerCase();
+      return name.includes(kw) || id.includes(keyword.toUpperCase());
+    });
+  }
 
   const grouped = {};
   const assigned = new Set();
   for (const zone of ZONE_GROUPS) {
     grouped[zone.key] = sensors.filter(s => {
       if (assigned.has(String(s.id))) return false;
-      if (zone.match(s)) { assigned.add(String(s.id)); return true; }
+      if (matchZone(s, zone)) { assigned.add(String(s.id)); return true; }
       return false;
     });
   }
