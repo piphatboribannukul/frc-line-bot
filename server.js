@@ -1333,14 +1333,14 @@ async function replyDailyTable(replyToken) {
   for (const zone of ZONE_GROUPS) {
     const list = grouped[zone.key] || [];
     if (list.length === 0) continue;
-    list.sort((a, b) => a.frc - b.frc);
+    list.sort((a, b) => b.frc - a.frc);
 
     const rows = [
       {
         type: "box", layout: "horizontal", margin: "sm",
         contents: [
           { type: "text", text: "No.", size: "xxs", color: COLORS.textMuted, flex: 1, weight: "bold" },
-          { type: "text", text: "สถานี", size: "xxs", color: COLORS.textMuted, flex: 6, weight: "bold" },
+          { type: "text", text: "สถานี", size: "xxs", color: COLORS.textMuted, flex: 8, weight: "bold" },
           { type: "text", text: "FRC", size: "xxs", color: COLORS.textMuted, flex: 2, align: "end", weight: "bold" }
         ]
       },
@@ -1350,12 +1350,12 @@ async function replyDailyTable(replyToken) {
     for (let i = 0; i < list.length; i++) {
       const s = list[i];
       const st = frcStatus(s.frc, s.type, s.id);
-      const shortName = (s.name || String(s.id)).length > 18 ? (s.name || String(s.id)).substring(0, 18) + '..' : (s.name || String(s.id));
+      const fullName = s.name || String(s.id);
       rows.push({
         type: "box", layout: "horizontal", margin: "sm",
         contents: [
           { type: "text", text: `${i + 1}`, size: "xxs", color: COLORS.textMuted, flex: 1 },
-          { type: "text", text: shortName, size: "xxs", color: COLORS.textPrimary, flex: 6 },
+          { type: "text", text: fullName, size: "xxs", color: COLORS.textPrimary, flex: 8, wrap: true },
           { type: "text", text: s.frc.toFixed(2), size: "xxs", color: st.color, flex: 2, align: "end", weight: "bold" }
         ]
       });
