@@ -508,8 +508,8 @@ async function checkAlerts() {
     }
   }
 
-  // ล้าง alert เก่ากว่า 3 ชม.
-  const cutoff = Date.now() - 10800000;
+  // ล้าง alert เก่ากว่า 8 ชม. (cooldown: แจ้งซ้ำสถานีเดิมได้หลัง 8 ชม.)
+  const cutoff = Date.now() - 28800000;
   for (const [k, v] of Object.entries(alertedStations)) {
     if (v < cutoff) delete alertedStations[k];
   }
@@ -1900,7 +1900,7 @@ function replyHelp(replyToken) {
           makeHelpRow("📍", "ใกล้ฉัน", "ส่งตำแหน่ง → ดูสถานีใกล้"),
           { type: "separator" },
           { type: "text", text: "🔔 แจ้งเตือนอัตโนมัติ", weight: "bold", size: "xs", color: COLORS.textPrimary },
-          { type: "text", text: "ตรวจค่าทุก 30 นาที — แจ้งเมื่อผิดปกติ", size: "xxs", color: COLORS.textMuted, wrap: true },
+          { type: "text", text: "ตรวจค่าทุก 1 ชม. — แจ้งเมื่อผิดปกติ (cooldown 8 ชม.)", size: "xxs", color: COLORS.textMuted, wrap: true },
           { type: "text", text: "สูบส่ง: ดี>1.0 ต่ำ<0.5 | สูบจ่าย: ดี>0.8 ต่ำ<0.5", size: "xxs", color: COLORS.textMuted, wrap: true },
           { type: "text", text: "Monitor: ดี>0.4 ต่ำ<0.2", size: "xxs", color: COLORS.textMuted, wrap: true },
         ]
@@ -2033,8 +2033,8 @@ app.get('/', (req, res) => {
 // Cron Jobs
 // ═══════════════════════════════════════════════════════════════════════════════
 
-cron.schedule('*/30 * * * *', () => {
-  console.log(`[Cron] ตรวจ FRC alert — ${new Date().toISOString()}`);
+cron.schedule('0 * * * *', () => {
+  console.log(`[Cron] ตรวจ FRC alert (ทุก 1 ชม.) — ${new Date().toISOString()}`);
   checkAlerts();
 }, { timezone: 'Asia/Bangkok' });
 
