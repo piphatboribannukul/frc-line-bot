@@ -1,6 +1,11 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// LINE Messaging API — FRC Chlorine Monitoring Bot  v12.0
+// LINE Messaging API — FRC Chlorine Monitoring Bot  v12.1
 // ═══════════════════════════════════════════════════════════════════════════════
+// Changelog v12.1 (จาก v12.0):
+//   🌸 Welcome Flex: เปลี่ยน follow event จาก text ธรรมดา → Flex Message สวยงาม
+//      - gradient header + LIVE badge + feature cards + action buttons
+//      - รองรับ "สวัสดี", "hello", "hi" แสดง welcome flex เหมือนกัน
+//
 // Changelog v12.0 (จาก v11.0):
 //   🔒 Security: ย้าย LINE_TOKEN & Firebase config เป็น env vars ทั้งหมด
 //   🎨 Flex Message: ออกแบบใหม่ทุก bubble — gradient header, progress bar, card layout
@@ -815,6 +820,15 @@ async function handleTextMessage(replyToken, text, userId) {
   // ── help
   if (/help|ช่วย|วิธีใช้|คำสั่ง/i.test(msg)) {
     return replyHelp(replyToken);
+  }
+
+  // ── สวัสดี / ทักทาย → Welcome text + Carousel
+  if (/^สวัสดี|^hello|^hi$|^หวัดดี|^ดี$/i.test(msg)) {
+    const welcomeText = {
+      type: 'text',
+      text: '💧 ยินดีต้อนรับสู่ Real-Time Contour Bot!\n\nสามารถกดเมนูด้านล่าง เพื่อเริ่มใช้งาน\nหรือพิมพ์ help เพื่อดูคำสั่ง\n\n🔔 Bot จะแจ้งเตือนอัตโนมัติเมื่อค่าผิดปกติ'
+    };
+    return lineReply(replyToken, withQuickReply([welcomeText, buildMenuCarousel()], ['chlorine', 'daily', 'ec', 'map', 'location', 'help']));
   }
 
   // ── ไม่ตรงคำสั่ง → Carousel เมนู
@@ -1731,7 +1745,8 @@ async function replyFlyToPlace(replyToken, place) {
 // 📱 Carousel Menu — รูป + ปุ่มกด เลื่อนซ้ายขวา (ส่งเมื่อพิมพ์ "เมนู")
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function replyMenuCarousel(replyToken) {
+// สร้าง Carousel Flex message object (ใช้ซ้ำได้ทั้ง follow event และ เมนู)
+function buildMenuCarousel() {
   const menuItems = [
     {
       image: `${IMG_BASE}/menu-contour.png`,
@@ -1801,11 +1816,15 @@ function replyMenuCarousel(replyToken) {
     }
   }));
 
-  return lineReply(replyToken, withQuickReply([{
+  return {
     type: "flex",
     altText: "📱 เมนู FRC Bot — เลื่อนเพื่อดูทั้งหมด",
     contents: { type: "carousel", contents: bubbles }
-  }]));
+  };
+}
+
+function replyMenuCarousel(replyToken) {
+  return lineReply(replyToken, withQuickReply([buildMenuCarousel()]));
 }
 
 function makeHelpRow(emoji, cmd, desc) {
@@ -1940,10 +1959,13 @@ app.post('/webhook', async (req, res) => {
       }
 
       if (event.type === 'follow') {
-        await lineReply(event.replyToken, withQuickReply([{
+        // ส่งข้อความต้อนรับ + Carousel เมนู
+        const welcomeText = {
           type: 'text',
-          text: '🌸 ยินดีต้อนรับสู่ FRC Chlorine Bot!\n\nพิมพ์ "คลอรีน" เพื่อดูค่า FRC ปัจจุบัน\nหรือกดปุ่มด้านล่าง เพื่อเริ่มใช้งาน\n\n🔔 Bot จะแจ้งเตือนอัตโนมัติเมื่อค่าผิดปกติ'
-        }], ['chlorine', 'daily', 'ec', 'map', 'location', 'help']));
+          text: '💧 ยินดีต้อนรับสู่ Real-Time Contour Bot!\n\nสามารถกดเมนูด้านล่าง เพื่อเริ่มใช้งาน\nหรือพิมพ์ help เพื่อดูคำสั่ง\n\n🔔 Bot จะแจ้งเตือนอัตโนมัติเมื่อค่าผิดปกติ'
+        };
+        const carouselMsg = buildMenuCarousel();
+        await lineReply(event.replyToken, withQuickReply([welcomeText, carouselMsg], ['chlorine', 'daily', 'ec', 'map', 'location', 'help']));
       }
     } catch (err) {
       console.error('[Webhook Error]', err.message);
@@ -1955,8 +1977,8 @@ app.post('/webhook', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    bot: 'FRC Chlorine LINE Bot v12.0',
-    version: '12.0',
+    bot: 'FRC Chlorine LINE Bot v12.1',
+    version: '12.1',
     time: new Date().toISOString(),
     targets: NOTIFY_TARGETS.size,
     security: {
@@ -2003,7 +2025,7 @@ cron.schedule('0 8 * * *', () => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 FRC Chlorine LINE Bot v12.0 running on port ${PORT}`);
+  console.log(`🚀 FRC Chlorine LINE Bot v12.1 running on port ${PORT}`);
   console.log(`   Webhook URL: POST /webhook`);
   console.log(`   Rich Menu Setup: POST /setup-richmenu`);
   console.log(`   🔒 Token from env: ${!LINE_TOKEN.includes('YB99') ? '✅' : '⚠️ ใช้ hardcoded — ควรย้ายเป็น env var'}`);
