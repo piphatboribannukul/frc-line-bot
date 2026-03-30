@@ -128,9 +128,8 @@ const THRESHOLDS = {
 
 function getThreshold(type, id) {
   const sid = String(id || '').toUpperCase();
-  if (SEND_IDS.includes(sid)) return THRESHOLDS.send;
-  if (PUMP_IDS.includes(sid) || sid.startsWith('SW') || type === 'plant') return THRESHOLDS.pump;
-  if (type === 'pump') return THRESHOLDS.pump;
+  if (SEND_IDS.includes(sid) || type === 'send') return THRESHOLDS.send;
+  if (PUMP_IDS.includes(sid) || sid.startsWith('SW') || type === 'plant' || type === 'pump') return THRESHOLDS.pump;
   return THRESHOLDS.monitor;
 }
 function getStationType(s) {
