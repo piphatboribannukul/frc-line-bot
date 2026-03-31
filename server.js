@@ -496,15 +496,10 @@ async function checkAlerts() {
   for (const s of sensors) {
     if (s.frc <= 0) continue;
     const t = getThreshold(s.type, s.id);
+    // แจ้งเตือนเฉพาะค่าต่ำเท่านั้น
     if (s.frc < t.low) {
       const key = `${s.id}_low`;
       if (!alertedStations[key]) { alertedStations[key] = Date.now(); alertList.push({ ...s, alertType: 'ต่ำ', threshold: t }); }
-    } else if (s.frc > t.high) {
-      const key = `${s.id}_high`;
-      if (!alertedStations[key]) { alertedStations[key] = Date.now(); alertList.push({ ...s, alertType: 'สูง', threshold: t }); }
-    } else if (s.frc < t.good) {
-      const key = `${s.id}_watch`;
-      if (!alertedStations[key]) { alertedStations[key] = Date.now(); alertList.push({ ...s, alertType: 'เฝ้าระวัง', threshold: t }); }
     }
   }
 
@@ -517,7 +512,7 @@ async function checkAlerts() {
   if (alertList.length === 0) return;
   const flexMsg = buildAlertFlex(alertList);
   await lineBroadcast([flexMsg]);
-  console.log(`[Alert] ส่งแจ้งเตือน ${alertList.length} สถานี`);
+  console.log(`[Alert] ส่งแจ้งเตือน ${alertList.length} สถานี (เฉพาะค่าต่ำ)`);
 }
 
 function buildAlertFlex(alerts) {
