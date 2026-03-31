@@ -1268,9 +1268,9 @@ async function replyDailySummary(replyToken) {
       { type: "separator", margin: "sm" },
       makeStatRow("FRC เฉลี่ยทั้งวัน", `${avgFrc} mg/L`),
       { type: "separator", margin: "sm" },
-      typeCardWithStations(IMAGES.iconSend, "สูบส่ง", sendStations, sc, avgSend, "#dbeafe", 'send', 10),
-      typeCardWithStations(IMAGES.iconPump, "สูบจ่าย", plantStations, pc, avgPump, "#d1fae5", 'pump', 10),
-      typeCardWithStations(IMAGES.iconMonitor, "Monitor", monitorStations, mc, avgMon, "#ede9fe", 'monitor', 5),
+      typeCardWithStations(IMAGES.iconSend, "สูบส่ง", sendStations, sc, avgSend, "#dbeafe", 'send', 4),
+      typeCardWithStations(IMAGES.iconPump, "สูบจ่าย", plantStations, pc, avgPump, "#d1fae5", 'pump', 5),
+      typeCardWithStations(IMAGES.iconMonitor, "Monitor", monitorStations, mc, avgMon, "#ede9fe", 'monitor', 3),
     ];
 
     return lineReply(replyToken, withQuickReply([{
