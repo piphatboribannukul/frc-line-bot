@@ -1093,6 +1093,7 @@ async function replyECStatus(replyToken) {
 
 async function replyDailySummary(replyToken) {
   try {
+    // ── ดึง history วันนี้ (0.00 น. – ปัจจุบัน) ──
     const snap = await get(ref(db, 'history'));
     if (!snap.exists()) {
       return lineReply(replyToken, withQuickReply([{ type: 'text', text: '❌ ไม่พบข้อมูลประวัติ\nลองพิมพ์ "คลอรีน" เพื่อดูค่าปัจจุบัน' }]));
@@ -1102,146 +1103,203 @@ async function replyDailySummary(replyToken) {
     today.setHours(0, 0, 0, 0);
     const todayMs = today.getTime();
 
-    let allReadings = [];
-    let stationCount = 0;
-
+    // รวม readings วันนี้ แยกตาม station
+    const stationReadings = {}; // code → [frc, frc, ...]
     snap.forEach(codeSnap => {
       const code = codeSnap.key;
       if (code.startsWith('_')) return;
-      stationCount++;
       codeSnap.forEach(ptSnap => {
         const p = ptSnap.val();
-        if (p && p.ts >= todayMs && p.frc != null) {
-          allReadings.push({ code, frc: p.frc, ts: p.ts });
+        if (p && p.ts >= todayMs && p.frc != null && p.frc > 0) {
+          if (!stationReadings[code]) stationReadings[code] = [];
+          stationReadings[code].push(p.frc);
         }
       });
     });
 
-    if (allReadings.length === 0) {
+    if (Object.keys(stationReadings).length === 0) {
       return lineReply(replyToken, withQuickReply([{ type: 'text', text: '📊 ยังไม่มีข้อมูลสะสมวันนี้\nลองพิมพ์ "คลอรีน" เพื่อดูค่าปัจจุบัน' }]));
     }
 
-    let sensors = [];
-    let stationNames = {};
-    try {
-      sensors = await fetchSensors();
-      for (const s of sensors) {
-        stationNames[String(s.id)] = s.name;
-        stationNames[String(s.id).replace(/\/|\./g, '-')] = s.name;
+    // ── ดึงข้อมูลสถานีปัจจุบัน (เพื่อ mapping ชื่อ + type) ──
+    const sensors = await fetchSensors();
+    const sensorMap = {};
+    for (const s of sensors) {
+      sensorMap[String(s.id)] = s;
+      sensorMap[String(s.id).replace(/\/|\./g, '-')] = s;
+    }
+
+    // ── คำนวณค่าเฉลี่ยทั้งวันต่อสถานี ──
+    const dailyStations = Object.entries(stationReadings).map(([code, readings]) => {
+      const avg = readings.reduce((a, b) => a + b, 0) / readings.length;
+      const s = sensorMap[code] || {};
+      return {
+        id: code,
+        name: s.name || code,
+        frc: parseFloat(avg.toFixed(3)),
+        type: s.type || 'monitor',
+        lat: s.lat || 0,
+        lon: s.lon || 0,
+      };
+    });
+
+    // ── แยกประเภท + นับสถานะ (reuse logic จาก replyCurrentStatus) ──
+    const sendStations = dailyStations.filter(s => getStationType(s) === 'send');
+    const plantStations = dailyStations.filter(s => getStationType(s) === 'pump');
+    const monitorStations = dailyStations.filter(s => getStationType(s) === 'monitor');
+
+    function countByStatus(list, thType) {
+      let ok = 0, watch = 0, low = 0, high = 0;
+      for (const s of list) {
+        const th = getThreshold(thType, s.id);
+        if (s.frc > th.high) high++;
+        else if (s.frc >= th.good) ok++;
+        else if (s.frc >= th.watch) watch++;
+        else low++;
       }
-    } catch(e) {}
+      return { ok, watch, low, high, total: list.length };
+    }
 
-    const frcValues = allReadings.map(r => r.frc);
-    const avgFrc = (frcValues.reduce((a, b) => a + b, 0) / frcValues.length).toFixed(2);
-    const minFrc = Math.min(...frcValues).toFixed(2);
-    const maxFrc = Math.max(...frcValues).toFixed(2);
-    const totalReadings = allReadings.length;
-    const lowCount = allReadings.filter(r => r.frc < FRC_MIN).length;
-    const lowPct = ((lowCount / totalReadings) * 100).toFixed(0);
-    const lowStationCodes = new Set(allReadings.filter(r => r.frc < FRC_MIN).map(r => r.code));
-    const highStationCodes = new Set(allReadings.filter(r => r.frc > 2.0).map(r => r.code));
+    const sc = countByStatus(sendStations, 'send');
+    const pc = countByStatus(plantStations, 'pump');
+    const mc = countByStatus(monitorStations, 'monitor');
+    const total = dailyStations.length;
+    const avgFrc = (dailyStations.reduce((a, s) => a + s.frc, 0) / total).toFixed(2);
+    const allOk = sc.ok + pc.ok + mc.ok;
+    const allWatch = sc.watch + pc.watch + mc.watch;
+    const allLow = sc.low + pc.low + mc.low;
+    const allHigh = sc.high + pc.high + mc.high;
 
-    const sendNow = sensors.filter(s => getStationType(s) === 'send');
-    const pumpNow = sensors.filter(s => getStationType(s) === 'pump');
-    const monNow = sensors.filter(s => getStationType(s) === 'monitor');
-    const avgSend = sendNow.length ? (sendNow.reduce((a,s) => a+s.frc, 0) / sendNow.length).toFixed(2) : '-';
-    const avgPump = pumpNow.length ? (pumpNow.reduce((a,s) => a+s.frc, 0) / pumpNow.length).toFixed(2) : '-';
-    const avgMon = monNow.length ? (monNow.reduce((a,s) => a+s.frc, 0) / monNow.length).toFixed(2) : '-';
+    const normalPct = total > 0 ? Math.round((allOk / total) * 100) : 0;
+    let overallEmoji, overallText, overallBg;
+    if (normalPct >= 90) { overallEmoji = '🟢'; overallText = 'ดี'; overallBg = '#ecfdf5'; }
+    else if (normalPct >= 70) { overallEmoji = '🟡'; overallText = 'พอใช้'; overallBg = '#fffbeb'; }
+    else { overallEmoji = '🔴'; overallText = 'ต้องติดตาม'; overallBg = '#fef2f2'; }
 
-    const normalPct = 100 - parseInt(lowPct);
-    let overallStatus, overallBg;
-    if (normalPct >= 95) { overallStatus = 'ดีมาก'; overallBg = '#ecfdf5'; }
-    else if (normalPct >= 80) { overallStatus = 'ดี'; overallBg = '#ecfdf5'; }
-    else if (normalPct >= 60) { overallStatus = 'พอใช้'; overallBg = '#fffbeb'; }
-    else { overallStatus = 'ต้องปรับปรุง'; overallBg = '#fef2f2'; }
+    const avgSend = sendStations.length ? (sendStations.reduce((a,s)=>a+s.frc,0)/sendStations.length).toFixed(2) : '-';
+    const avgPump = plantStations.length ? (plantStations.reduce((a,s)=>a+s.frc,0)/plantStations.length).toFixed(2) : '-';
+    const avgMon = monitorStations.length ? (monitorStations.reduce((a,s)=>a+s.frc,0)/monitorStations.length).toFixed(2) : '-';
 
-    const bodyContents = [
-      {
-        type: "box", layout: "horizontal", paddingAll: "14px",
-        cornerRadius: "10px", backgroundColor: overallBg,
+    function typeRow(iconUrl, label, count, avg, bgTint, thType) {
+      const th = THRESHOLDS[thType] || THRESHOLDS.monitor;
+      return {
+        type: "box", layout: "horizontal", margin: "xs",
+        paddingAll: "8px", paddingStart: "10px", cornerRadius: "8px",
+        backgroundColor: bgTint || COLORS.bgCard,
         contents: [
-          { type: "text", text: normalPct >= 80 ? '🟢' : normalPct >= 60 ? '🟡' : '🔴', size: "3xl", flex: 0 },
           {
-            type: "box", layout: "vertical", flex: 5, margin: "lg",
+            type: "box", layout: "vertical", flex: 0, width: "56px", height: "56px",
+            justifyContent: "center", alignItems: "center",
+            contents: [{
+              type: "image", url: iconUrl,
+              size: "56px", aspectMode: "fit", aspectRatio: "1:1"
+            }]
+          },
+          {
+            type: "box", layout: "vertical", flex: 5, margin: "md", justifyContent: "center",
             contents: [
-              { type: "text", text: `ภาพรวม: ${overallStatus}`, size: "md", weight: "bold", color: COLORS.textPrimary },
-              { type: "text", text: `ค่าปกติ ${normalPct}% ของวันนี้`, size: "xs", color: COLORS.textSecondary, margin: "xs" },
-              makeProgressBar(normalPct, normalPct >= 80 ? COLORS.good : normalPct >= 60 ? COLORS.warn : COLORS.bad),
+              {
+                type: "box", layout: "horizontal",
+                contents: [
+                  { type: "text", text: label, size: "sm", weight: "bold", color: COLORS.textPrimary, flex: 3 },
+                  { type: "text", text: `${avg}`, size: "md", color: COLORS.accent, weight: "bold", flex: 0 },
+                  { type: "text", text: " mg/L", size: "xxs", color: COLORS.textMuted, flex: 0, gravity: "bottom" }
+                ]
+              },
+              { type: "text", text: `ดี≥${th.good}  ระวัง${th.watch}-${th.good}  ต่ำ<${th.low}  สูง>${th.high}`, size: "xxs", color: COLORS.textMuted, margin: "none" },
+              { type: "text", text: `✅${count.ok} ⚠️${count.watch} ❌${count.low} 🔶${count.high}  ·  ${count.total} สถานี`, size: "xxs", color: COLORS.textSecondary, margin: "none" },
+            ]
+          }
+        ]
+      };
+    }
+
+    // ── สร้าง body (template เดียวกับ replyCurrentStatus แต่ไม่มี สูงสุด/ต่ำสุด) ──
+    const bodyContents = [
+      // Overall
+      {
+        type: "box", layout: "horizontal", paddingAll: "10px",
+        cornerRadius: "8px", backgroundColor: overallBg,
+        contents: [
+          { type: "text", text: overallEmoji, size: "xl", flex: 0, gravity: "center" },
+          {
+            type: "box", layout: "vertical", flex: 5, margin: "sm",
+            contents: [
+              { type: "text", text: `ภาพรวม: ${overallText}`, size: "sm", weight: "bold", color: COLORS.textPrimary },
+              { type: "text", text: `ปกติ ${allOk}/${total} สถานี (${normalPct}%)`, size: "xxs", color: COLORS.textSecondary },
+              makeProgressBar(normalPct, normalPct >= 80 ? COLORS.good : normalPct >= 50 ? COLORS.warn : COLORS.bad),
             ]
           }
         ]
       },
-      { type: "separator", margin: "lg" },
-      { type: "text", text: "📊 ตัวเลขสำคัญ", weight: "bold", size: "sm", color: COLORS.textPrimary, margin: "md" },
+      // Count boxes
+      {
+        type: "box", layout: "horizontal", margin: "sm", spacing: "sm",
+        contents: [
+          makeCountBox("ดี", allOk, COLORS.good),
+          makeCountBox("ระวัง", allWatch, COLORS.warn),
+          makeCountBox("ต่ำ", allLow, COLORS.bad),
+          makeCountBox("สูง", allHigh, COLORS.high),
+        ]
+      },
+      { type: "separator", margin: "sm" },
+      // FRC เฉลี่ยทั้งวัน (ไม่มี สูงสุด/ต่ำสุด)
       makeStatRow("FRC เฉลี่ยทั้งวัน", `${avgFrc} mg/L`),
-      makeStatRow("สูงสุด / ต่ำสุด", `${maxFrc} / ${minFrc} mg/L`),
-      makeStatRow("สถานี", `${stationCount} สถานี`),
-      makeStatRow("ข้อมูลสะสม", `${totalReadings} จุด`),
-      { type: "separator", margin: "md" },
-      { type: "text", text: "🏭 เฉลี่ยตามประเภท (ปัจจุบัน)", weight: "bold", size: "sm", color: COLORS.textPrimary, margin: "md" },
-      makeStatRow("สูบส่ง", `${avgSend} mg/L`),
-      makeStatRow("สูบจ่าย", `${avgPump} mg/L`),
-      makeStatRow("Monitor", `${avgMon} mg/L`),
+      { type: "separator", margin: "sm" },
+      // Type breakdown
+      typeRow(IMAGES.iconSend, "สูบส่ง", sc, avgSend, "#dbeafe", 'send'),
+      typeRow(IMAGES.iconPump, "สูบจ่าย", pc, avgPump, "#d1fae5", 'pump'),
+      typeRow(IMAGES.iconMonitor, "Monitor", mc, avgMon, "#ede9fe", 'monitor'),
     ];
 
-    if (lowStationCodes.size > 0) {
-      bodyContents.push({ type: "separator", margin: "lg" });
-      bodyContents.push({
-        type: "box", layout: "horizontal", margin: "md",
-        paddingAll: "10px", cornerRadius: "8px", backgroundColor: COLORS.bgWarm,
-        contents: [
-          { type: "text", text: "🔴", size: "sm", flex: 0 },
-          {
-            type: "box", layout: "vertical", flex: 5, margin: "sm",
-            contents: [
-              { type: "text", text: `ต่ำกว่าเกณฑ์ ${lowStationCodes.size} สถานี (${lowPct}%)`, size: "xs", weight: "bold", color: COLORS.bad, wrap: true },
-              { type: "text", text: [...lowStationCodes].slice(0, 3).map(c => stationNames[c] || c).join(', '), size: "xxs", color: COLORS.textMuted, margin: "xs", wrap: true }
-            ]
-          }
-        ]
-      });
-    }
+    // ── สถานีที่ต้องติดตาม (เฉพาะค่าต่ำ) ──
+    const alertStations = dailyStations.filter(s => {
+      const t = getThreshold(s.type, s.id);
+      return s.frc < t.low;
+    }).sort((a,b) => a.frc - b.frc).slice(0, 3);
 
-    if (highStationCodes.size > 0) {
+    if (alertStations.length > 0) {
+      bodyContents.push({ type: "separator", margin: "xs" });
       bodyContents.push({
-        type: "box", layout: "horizontal", margin: "sm",
-        paddingAll: "10px", cornerRadius: "8px", backgroundColor: '#fffbeb',
+        type: "box", layout: "vertical", margin: "xs",
+        paddingAll: "8px", cornerRadius: "6px", backgroundColor: COLORS.bgWarm,
         contents: [
-          { type: "text", text: "🟠", size: "sm", flex: 0 },
-          {
-            type: "box", layout: "vertical", flex: 5, margin: "sm",
-            contents: [
-              { type: "text", text: `สูงกว่าเกณฑ์ ${highStationCodes.size} สถานี`, size: "xs", weight: "bold", color: COLORS.high, wrap: true },
-              { type: "text", text: [...highStationCodes].slice(0, 3).map(c => stationNames[c] || c).join(', '), size: "xxs", color: COLORS.textMuted, margin: "xs", wrap: true }
-            ]
-          }
-        ]
-      });
-    }
-
-    if (lowStationCodes.size === 0 && highStationCodes.size === 0) {
-      bodyContents.push({ type: "separator", margin: "lg" });
-      bodyContents.push({
-        type: "box", layout: "horizontal", margin: "md",
-        paddingAll: "10px", cornerRadius: "8px", backgroundColor: '#ecfdf5',
-        contents: [
-          { type: "text", text: "✅", size: "sm", flex: 0 },
-          { type: "text", text: "คลอรีนปกติตลอดทั้งวัน", size: "xs", weight: "bold", color: COLORS.good, flex: 5, margin: "sm", wrap: true }
+          { type: "text", text: "⚠️ ต้องติดตาม", size: "xxs", weight: "bold", color: COLORS.bad },
+          ...alertStations.map(s => {
+            const st = frcStatus(s.frc, s.type, s.id);
+            return { type: "text", text: `${st.emoji} ${(s.name||s.id)} — ${s.frc.toFixed(2)} mg/L`, size: "xxs", color: COLORS.textSecondary, wrap: true };
+          })
         ]
       });
     }
 
     return lineReply(replyToken, withQuickReply([{
       type: "flex",
-      altText: `📊 สรุปวัน — ${overallStatus} FRC ${avgFrc} mg/L`,
+      altText: `📊 สรุปวัน — ${overallEmoji}${overallText} FRC ${avgFrc} mg/L`,
       contents: {
         type: "bubble", size: "mega",
-        header: makeHeader('📊 สรุปประจำวัน', `${thaiDate()} — Executive Summary`, COLORS.headerDark),
-        body: { type: "box", layout: "vertical", paddingAll: "14px", contents: bodyContents },
-        footer: makeFooterButtons([
-          { label: 'ดูค่าปัจจุบัน', text: 'คลอรีน', primary: true },
-          { label: 'แผนที่', uri: CONTOUR_URL }
-        ])
+        header: makeHeader('📊 สรุปประจำวัน (0.00 น. – ปัจจุบัน)', `${thaiDate()} ${thaiTime()} น.`, COLORS.headerDark, IMAGES.logo),
+        body: { type: "box", layout: "vertical", paddingAll: "10px", paddingTop: "8px", contents: bodyContents },
+        footer: {
+          type: "box", layout: "vertical", paddingAll: "6px", spacing: "xs",
+          contents: [
+            {
+              type: "box", layout: "horizontal", spacing: "xs",
+              contents: [
+                { type: "button", action: { type: "message", label: "สูบส่ง", text: "ดูสูบส่ง" }, height: "sm", style: "primary", color: "#3b82f6", flex: 1 },
+                { type: "button", action: { type: "message", label: "สูบจ่าย", text: "ดูสูบจ่าย" }, height: "sm", style: "primary", color: "#10b981", flex: 1 },
+                { type: "button", action: { type: "message", label: "Monitor", text: "ดู monitor" }, height: "sm", style: "primary", color: "#8b5cf6", flex: 1 },
+              ]
+            },
+            {
+              type: "box", layout: "horizontal", spacing: "xs",
+              contents: [
+                { type: "button", action: { type: "message", label: "📋 ตาราง", text: "ตารางวัน" }, height: "sm", style: "primary", color: COLORS.accent, flex: 1 },
+                { type: "button", action: { type: "uri", label: "แผนที่", uri: CONTOUR_URL }, height: "sm", style: "primary", color: "#0f172a", flex: 1 },
+              ]
+            }
+          ]
+        }
       }
     }], ['chlorine', 'table', 'low', 'ec', 'map']));
   } catch (err) {
