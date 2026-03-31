@@ -1093,22 +1093,19 @@ async function replyECStatus(replyToken) {
 
 async function replyDailySummary(replyToken) {
   try {
-    // ── ดึง history วันนี้ (0.00 น. – ปัจจุบัน) ──
     const snap = await get(ref(db, 'history'));
     if (!snap.exists()) {
-      return lineReply(replyToken, withQuickReply([{ type: 'text', text: '❌ ไม่พบข้อมูลประวัติ\nลองพิมพ์ "คลอรีน" เพื่อดูค่าปัจจุบัน' }]));
+      return lineReply(replyToken, withQuickReply([{ type: 'text', text: '❌ ไม่พบข้อมูลประวัติ' }]));
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = new Date(); today.setHours(0,0,0,0);
     const todayMs = today.getTime();
-
     const stationReadings = {};
-    snap.forEach(codeSnap => {
-      const code = codeSnap.key;
+    snap.forEach(cs => {
+      const code = cs.key;
       if (code.startsWith('_')) return;
-      codeSnap.forEach(ptSnap => {
-        const p = ptSnap.val();
+      cs.forEach(ps => {
+        const p = ps.val();
         if (p && p.ts >= todayMs && p.frc != null && p.frc > 0) {
           if (!stationReadings[code]) stationReadings[code] = [];
           stationReadings[code].push(p.frc);
@@ -1117,28 +1114,25 @@ async function replyDailySummary(replyToken) {
     });
 
     if (Object.keys(stationReadings).length === 0) {
-      return lineReply(replyToken, withQuickReply([{ type: 'text', text: '📊 ยังไม่มีข้อมูลสะสมวันนี้\nลองพิมพ์ "คลอรีน" เพื่อดูค่าปัจจุบัน' }]));
+      return lineReply(replyToken, withQuickReply([{ type: 'text', text: '📊 ยังไม่มีข้อมูลสะสมวันนี้' }]));
     }
 
     const sensors = await fetchSensors();
-    const sensorMap = {};
-    for (const s of sensors) {
-      sensorMap[String(s.id)] = s;
-      sensorMap[String(s.id).replace(/\/|\./g, '-')] = s;
-    }
+    const sMap = {};
+    for (const s of sensors) { sMap[String(s.id)] = s; sMap[String(s.id).replace(/\/|\./g,'-')] = s; }
 
-    const dailyStations = Object.entries(stationReadings).map(([code, readings]) => {
-      const avg = readings.reduce((a, b) => a + b, 0) / readings.length;
-      const s = sensorMap[code] || {};
+    const daily = Object.entries(stationReadings).map(([code, r]) => {
+      const avg = r.reduce((a,b) => a+b, 0) / r.length;
+      const s = sMap[code] || {};
       return { id: code, name: s.name || code, frc: parseFloat(avg.toFixed(3)), type: s.type || 'monitor' };
     });
 
-    const sendStations = dailyStations.filter(s => getStationType(s) === 'send').sort((a,b) => b.frc - a.frc);
-    const plantStations = dailyStations.filter(s => getStationType(s) === 'pump').sort((a,b) => b.frc - a.frc);
-    const monitorStations = dailyStations.filter(s => getStationType(s) === 'monitor').sort((a,b) => b.frc - a.frc);
+    const sendS = daily.filter(s => getStationType(s) === 'send');
+    const pumpS = daily.filter(s => getStationType(s) === 'pump');
+    const monS  = daily.filter(s => getStationType(s) === 'monitor');
 
-    function countByStatus(list, thType) {
-      let ok = 0, watch = 0, low = 0, high = 0;
+    function cnt(list, thType) {
+      let ok=0, watch=0, low=0, high=0;
       for (const s of list) {
         const th = getThreshold(thType, s.id);
         if (s.frc > th.high) high++; else if (s.frc >= th.good) ok++; else if (s.frc >= th.watch) watch++; else low++;
@@ -1146,152 +1140,97 @@ async function replyDailySummary(replyToken) {
       return { ok, watch, low, high, total: list.length };
     }
 
-    const sc = countByStatus(sendStations, 'send');
-    const pc = countByStatus(plantStations, 'pump');
-    const mc = countByStatus(monitorStations, 'monitor');
-    const total = dailyStations.length;
-    const avgFrc = (dailyStations.reduce((a, s) => a + s.frc, 0) / total).toFixed(2);
-    const allOk = sc.ok + pc.ok + mc.ok;
-    const allWatch = sc.watch + pc.watch + mc.watch;
-    const allLow = sc.low + pc.low + mc.low;
-    const allHigh = sc.high + pc.high + mc.high;
+    const sc = cnt(sendS,'send'), pc = cnt(pumpS,'pump'), mc = cnt(monS,'monitor');
+    const total = daily.length;
+    const avgFrc = (daily.reduce((a,s) => a+s.frc, 0) / total).toFixed(2);
+    const allOk = sc.ok+pc.ok+mc.ok, allWatch = sc.watch+pc.watch+mc.watch;
+    const allLow = sc.low+pc.low+mc.low, allHigh = sc.high+pc.high+mc.high;
 
-    const normalPct = total > 0 ? Math.round((allOk / total) * 100) : 0;
-    let overallEmoji, overallText, overallBg;
-    if (normalPct >= 90) { overallEmoji = '🟢'; overallText = 'ดี'; overallBg = '#ecfdf5'; }
-    else if (normalPct >= 70) { overallEmoji = '🟡'; overallText = 'พอใช้'; overallBg = '#fffbeb'; }
-    else { overallEmoji = '🔴'; overallText = 'ต้องติดตาม'; overallBg = '#fef2f2'; }
+    const normalPct = total > 0 ? Math.round((allOk/total)*100) : 0;
+    let oe, ot, ob;
+    if (normalPct >= 90) { oe='🟢'; ot='ดี'; ob='#ecfdf5'; }
+    else if (normalPct >= 70) { oe='🟡'; ot='พอใช้'; ob='#fffbeb'; }
+    else { oe='🔴'; ot='ต้องติดตาม'; ob='#fef2f2'; }
 
-    // ── สร้างรายชื่อสถานีใน type card ──
-    function buildStationRows(list, thType, maxShow) {
-      const rows = [];
-      const show = list.slice(0, maxShow);
-      for (const s of show) {
-        const st = frcStatus(s.frc, s.type, s.id);
-        const name = (s.name || s.id).replace('สถานีสูบจ่ายน้ำ','สจ.').replace('สถานีสูบส่งน้ำ','สจส.').replace('โรงงานผลิตน้ำ','รง.');
-        rows.push({
-          type: "box", layout: "horizontal", margin: "xs", spacing: "sm",
-          contents: [
-            { type: "box", layout: "vertical", flex: 0, width: "6px", height: "6px", cornerRadius: "3px", backgroundColor: st.color, margin: "sm" },
-            { type: "text", text: name, size: "xxs", color: COLORS.textPrimary, flex: 7, wrap: true },
-            { type: "text", text: s.frc.toFixed(2), size: "xxs", color: st.color, weight: "bold", flex: 2, align: "end" }
-          ]
-        });
-      }
-      if (list.length > maxShow) {
-        rows.push({ type: "text", text: `... อีก ${list.length - maxShow} สถานี`, size: "xxs", color: COLORS.textMuted, align: "center", margin: "xs" });
-      }
-      const lowList = list.filter(s => { const t = getThreshold(thType, s.id); return s.frc < t.low; });
-      if (lowList.length > 0) {
-        rows.push({ type: "separator", margin: "xs" });
-        rows.push({ type: "text", text: "⚠️ ต้องติดตาม:", size: "xxs", weight: "bold", color: COLORS.bad, margin: "xs" });
-        for (const s of lowList.slice(0, 3)) {
-          const st = frcStatus(s.frc, s.type, s.id);
-          const name = (s.name || s.id).replace('สถานีสูบจ่ายน้ำ','สจ.').replace('สถานีสูบส่งน้ำ','สจส.');
-          rows.push({
-            type: "box", layout: "horizontal", margin: "xs", spacing: "sm",
-            contents: [
-              { type: "box", layout: "vertical", flex: 0, width: "6px", height: "6px", cornerRadius: "3px", backgroundColor: COLORS.bad, margin: "sm" },
-              { type: "text", text: name, size: "xxs", color: COLORS.textPrimary, flex: 7, wrap: true },
-              { type: "text", text: s.frc.toFixed(2), size: "xxs", color: COLORS.bad, weight: "bold", flex: 2, align: "end" }
-            ]
-          });
-        }
-      }
-      return rows;
-    }
+    const avgSend = sendS.length ? (sendS.reduce((a,s)=>a+s.frc,0)/sendS.length).toFixed(2) : '-';
+    const avgPump = pumpS.length ? (pumpS.reduce((a,s)=>a+s.frc,0)/pumpS.length).toFixed(2) : '-';
+    const avgMon  = monS.length  ? (monS.reduce((a,s)=>a+s.frc,0)/monS.length).toFixed(2)   : '-';
 
-    // ── Type card พร้อมรายชื่อสถานี ──
-    function typeCardWithStations(iconUrl, label, list, count, avg, bgTint, thType, maxShow) {
+    function typeRow(iconUrl, label, count, avg, bgTint, thType) {
       const th = THRESHOLDS[thType] || THRESHOLDS.monitor;
-      const stationRows = buildStationRows(list, thType, maxShow);
       return {
-        type: "box", layout: "horizontal", margin: "sm",
-        paddingAll: "8px", paddingStart: "10px", cornerRadius: "8px",
-        backgroundColor: bgTint || COLORS.bgCard,
-        contents: [
-          {
-            type: "box", layout: "vertical", flex: 0, width: "48px", height: "48px",
-            justifyContent: "center", alignItems: "center",
-            contents: [{ type: "image", url: iconUrl, size: "48px", aspectMode: "fit", aspectRatio: "1:1" }]
-          },
-          {
-            type: "box", layout: "vertical", flex: 5, margin: "md",
-            contents: [
-              {
-                type: "box", layout: "horizontal",
-                contents: [
-                  { type: "text", text: label, size: "sm", weight: "bold", color: COLORS.textPrimary, flex: 3 },
-                  { type: "text", text: `${avg}`, size: "md", color: COLORS.accent, weight: "bold", flex: 0 },
-                  { type: "text", text: " mg/L", size: "xxs", color: COLORS.textMuted, flex: 0, gravity: "bottom" }
-                ]
-              },
-              { type: "text", text: `ดี≥${th.good}  ระวัง${th.watch}-${th.good}  ต่ำ<${th.low}`, size: "xxs", color: COLORS.textMuted, margin: "none" },
-              { type: "text", text: `✅${count.ok} ⚠️${count.watch} ❌${count.low} 🔶${count.high}  ·  ${count.total} สถานี`, size: "xxs", color: COLORS.textSecondary, margin: "none" },
-              { type: "separator", margin: "sm" },
-              ...stationRows
-            ]
-          }
+        type:"box",layout:"horizontal",margin:"xs",
+        paddingAll:"8px",paddingStart:"10px",cornerRadius:"8px",
+        backgroundColor:bgTint||COLORS.bgCard,
+        contents:[
+          {type:"box",layout:"vertical",flex:0,width:"56px",height:"56px",justifyContent:"center",alignItems:"center",
+           contents:[{type:"image",url:iconUrl,size:"56px",aspectMode:"fit",aspectRatio:"1:1"}]},
+          {type:"box",layout:"vertical",flex:5,margin:"md",justifyContent:"center",
+           contents:[
+             {type:"box",layout:"horizontal",contents:[
+               {type:"text",text:label,size:"sm",weight:"bold",color:COLORS.textPrimary,flex:3},
+               {type:"text",text:`${avg}`,size:"md",color:COLORS.accent,weight:"bold",flex:0},
+               {type:"text",text:" mg/L",size:"xxs",color:COLORS.textMuted,flex:0,gravity:"bottom"}
+             ]},
+             {type:"text",text:`ดี≥${th.good}  ระวัง${th.watch}-${th.good}  ต่ำ<${th.low}`,size:"xxs",color:COLORS.textMuted,margin:"none"},
+             {type:"text",text:`✅${count.ok} ⚠️${count.watch} ❌${count.low} 🔶${count.high}  ·  ${count.total} สถานี`,size:"xxs",color:COLORS.textSecondary,margin:"none"},
+           ]}
         ]
       };
     }
 
-    const avgSend = sendStations.length ? (sendStations.reduce((a,s)=>a+s.frc,0)/sendStations.length).toFixed(2) : '-';
-    const avgPump = plantStations.length ? (plantStations.reduce((a,s)=>a+s.frc,0)/plantStations.length).toFixed(2) : '-';
-    const avgMon = monitorStations.length ? (monitorStations.reduce((a,s)=>a+s.frc,0)/monitorStations.length).toFixed(2) : '-';
-
-    const bodyContents = [
-      {
-        type: "box", layout: "horizontal", paddingAll: "10px",
-        cornerRadius: "8px", backgroundColor: overallBg,
-        contents: [
-          { type: "text", text: overallEmoji, size: "xl", flex: 0, gravity: "center" },
-          {
-            type: "box", layout: "vertical", flex: 5, margin: "sm",
-            contents: [
-              { type: "text", text: `ภาพรวม: ${overallText}`, size: "sm", weight: "bold", color: COLORS.textPrimary },
-              { type: "text", text: `ปกติ ${allOk}/${total} สถานี (${normalPct}%)`, size: "xxs", color: COLORS.textSecondary },
-              makeProgressBar(normalPct, normalPct >= 80 ? COLORS.good : normalPct >= 50 ? COLORS.warn : COLORS.bad),
-            ]
-          }
-        ]
-      },
-      {
-        type: "box", layout: "horizontal", margin: "sm", spacing: "sm",
-        contents: [
-          makeCountBox("ดี", allOk, COLORS.good),
-          makeCountBox("ระวัง", allWatch, COLORS.warn),
-          makeCountBox("ต่ำ", allLow, COLORS.bad),
-          makeCountBox("สูง", allHigh, COLORS.high),
-        ]
-      },
-      { type: "separator", margin: "sm" },
-      makeStatRow("FRC เฉลี่ยทั้งวัน", `${avgFrc} mg/L`),
-      { type: "separator", margin: "sm" },
-      typeCardWithStations(IMAGES.iconSend, "สูบส่ง", sendStations, sc, avgSend, "#dbeafe", 'send', 4),
-      typeCardWithStations(IMAGES.iconPump, "สูบจ่าย", plantStations, pc, avgPump, "#d1fae5", 'pump', 5),
-      typeCardWithStations(IMAGES.iconMonitor, "Monitor", monitorStations, mc, avgMon, "#ede9fe", 'monitor', 3),
+    const body = [
+      {type:"box",layout:"horizontal",paddingAll:"10px",cornerRadius:"8px",backgroundColor:ob,
+       contents:[
+         {type:"text",text:oe,size:"xl",flex:0,gravity:"center"},
+         {type:"box",layout:"vertical",flex:5,margin:"sm",contents:[
+           {type:"text",text:`ภาพรวม: ${ot}`,size:"sm",weight:"bold",color:COLORS.textPrimary},
+           {type:"text",text:`ปกติ ${allOk}/${total} สถานี (${normalPct}%)`,size:"xxs",color:COLORS.textSecondary},
+           makeProgressBar(normalPct, normalPct>=80?COLORS.good:normalPct>=50?COLORS.warn:COLORS.bad),
+         ]}
+       ]},
+      {type:"box",layout:"horizontal",margin:"sm",spacing:"sm",contents:[
+        makeCountBox("ดี",allOk,COLORS.good),makeCountBox("ระวัง",allWatch,COLORS.warn),
+        makeCountBox("ต่ำ",allLow,COLORS.bad),makeCountBox("สูง",allHigh,COLORS.high),
+      ]},
+      {type:"separator",margin:"sm"},
+      makeStatRow("FRC เฉลี่ยทั้งวัน",`${avgFrc} mg/L`),
+      {type:"separator",margin:"sm"},
+      typeRow(IMAGES.iconSend,"สูบส่ง",sc,avgSend,"#dbeafe",'send'),
+      typeRow(IMAGES.iconPump,"สูบจ่าย",pc,avgPump,"#d1fae5",'pump'),
+      typeRow(IMAGES.iconMonitor,"Monitor",mc,avgMon,"#ede9fe",'monitor'),
     ];
 
+    // สถานีค่าต่ำ (แสดงสั้นๆ)
+    const lowStations = daily.filter(s => { const t=getThreshold(s.type,s.id); return s.frc<t.low; }).sort((a,b)=>a.frc-b.frc).slice(0,3);
+    if (lowStations.length > 0) {
+      body.push({type:"separator",margin:"xs"});
+      body.push({type:"box",layout:"vertical",margin:"xs",paddingAll:"8px",cornerRadius:"6px",backgroundColor:COLORS.bgWarm,
+        contents:[
+          {type:"text",text:"⚠️ ต้องติดตาม",size:"xxs",weight:"bold",color:COLORS.bad},
+          ...lowStations.map(s => {
+            const st = frcStatus(s.frc,s.type,s.id);
+            return {type:"text",text:`${st.emoji} ${(s.name||s.id).substring(0,25)} — ${s.frc.toFixed(2)} mg/L`,size:"xxs",color:COLORS.textSecondary,wrap:true};
+          })
+        ]
+      });
+    }
+
     return lineReply(replyToken, withQuickReply([{
-      type: "flex",
-      altText: `📊 สรุปวัน — ${overallEmoji}${overallText} FRC ${avgFrc} mg/L`,
-      contents: {
-        type: "bubble", size: "mega",
-        header: makeHeader('📊 สรุปประจำวัน (0.00 น. – ปัจจุบัน)', `${thaiDate()} ${thaiTime()} น.`, COLORS.headerDark, IMAGES.logo),
-        body: { type: "box", layout: "vertical", paddingAll: "10px", paddingTop: "8px", contents: bodyContents },
-        footer: {
-          type: "box", layout: "horizontal", paddingAll: "6px", spacing: "xs",
-          contents: [
-            { type: "button", action: { type: "message", label: "📋 ตาราง", text: "ตารางวัน" }, height: "sm", style: "primary", color: COLORS.accent, flex: 1 },
-            { type: "button", action: { type: "uri", label: "🗺️ แผนที่", uri: CONTOUR_URL }, height: "sm", style: "primary", color: "#0f172a", flex: 1 },
-          ]
-        }
+      type:"flex",altText:`📊 สรุปวัน — ${oe}${ot} FRC ${avgFrc} mg/L`,
+      contents:{
+        type:"bubble",size:"mega",
+        header:makeHeader('📊 สรุปประจำวัน (0.00 น. – ปัจจุบัน)',`${thaiDate()} ${thaiTime()} น.`,COLORS.headerDark,IMAGES.logo),
+        body:{type:"box",layout:"vertical",paddingAll:"10px",paddingTop:"8px",contents:body},
+        footer:{type:"box",layout:"horizontal",paddingAll:"6px",spacing:"xs",contents:[
+          {type:"button",action:{type:"message",label:"📋 ตาราง",text:"ตารางวัน"},height:"sm",style:"primary",color:COLORS.accent,flex:1},
+          {type:"button",action:{type:"uri",label:"🗺️ แผนที่",uri:CONTOUR_URL},height:"sm",style:"primary",color:"#0f172a",flex:1},
+        ]}
       }
-    }], ['chlorine', 'table', 'low', 'ec', 'map']));
-  } catch (err) {
+    }],['chlorine','table','low','ec','map']));
+  } catch(err) {
     console.error('[Daily Summary Error]', err.message);
-    return lineReply(replyToken, withQuickReply([{ type: 'text', text: '❌ ไม่สามารถดึงข้อมูลประวัติได้: ' + err.message }]));
+    return lineReply(replyToken, withQuickReply([{type:'text',text:'❌ สรุปวัน error: '+err.message}]));
   }
 }
 
