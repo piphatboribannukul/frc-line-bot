@@ -1898,22 +1898,22 @@ function replyHelp(replyToken) {
 
 app.post('/setup-richmenu', async (req, res) => {
   try {
-    // Layout: 2500x1686
-    // Row 1 (3 ปุ่ม): แผนที่ | คลอรีน | EC
-    // Row 2 (2 ปุ่ม): ค้นหาสถานี | ใกล้ฉัน
+    // Layout: 2500x1686 — Glassmorphism v3
+    // Row 1 (3 ปุ่ม): Nearby | FRC Report | ความนำไฟฟ้า
+    // Row 2 (2 ปุ่ม): Contour Map | Search Station
     const richMenu = {
       size: { width: 2500, height: 1686 },
       selected: true,
-      name: "FRC Bot Menu v12",
+      name: "FRC Bot Menu v3",
       chatBarText: "💧 เมนู FRC",
       areas: [
-        // Row 1
-        { bounds: { x: 0, y: 0, width: 833, height: 843 }, action: { type: "uri", label: "แผนที่", uri: CONTOUR_URL } },
-        { bounds: { x: 833, y: 0, width: 834, height: 843 }, action: { type: "message", label: "คลอรีน", text: "คลอรีน" } },
-        { bounds: { x: 1667, y: 0, width: 833, height: 843 }, action: { type: "message", label: "EC", text: "ec" } },
-        // Row 2
-        { bounds: { x: 0, y: 843, width: 1250, height: 843 }, action: { type: "message", label: "ค้นหาสถานี", text: "ค้นหาสถานที่" } },
-        { bounds: { x: 1250, y: 843, width: 1250, height: 843 }, action: { type: "message", label: "ใกล้ฉัน", text: "ใกล้ฉัน" } },
+        // Row 1 (3 cells: 833+834+833 = 2500)
+        { bounds: { x: 0, y: 0, width: 833, height: 843 }, action: { type: "message", label: "ใกล้ฉัน", text: "ใกล้ฉัน" } },
+        { bounds: { x: 833, y: 0, width: 834, height: 843 }, action: { type: "message", label: "FRC Report", text: "คลอรีน" } },
+        { bounds: { x: 1667, y: 0, width: 833, height: 843 }, action: { type: "message", label: "ความนำไฟฟ้า", text: "ec" } },
+        // Row 2 (2 cells: 1250+1250 = 2500)
+        { bounds: { x: 0, y: 843, width: 1250, height: 843 }, action: { type: "uri", label: "Contour Map", uri: CONTOUR_URL } },
+        { bounds: { x: 1250, y: 843, width: 1250, height: 843 }, action: { type: "message", label: "ค้นหาสถานี", text: "ค้นหาสถานที่" } },
       ]
     };
 
@@ -1937,8 +1937,8 @@ app.post('/setup-richmenu', async (req, res) => {
       note: 'ต้อง upload รูป 2500x1686 เพิ่ม ผ่าน API หรือ LINE OA Manager',
       upload_url: `POST https://api-data.line.me/v2/bot/richmenu/${richMenuId}/content`,
       layout: {
-        row1: ['🗺️ แผนที่ Contour', '💧 คลอรีน FRC', '⚡ ค่า EC'],
-        row2: ['🔍 ค้นหาสถานี', '📍 ใกล้ฉัน']
+        row1: ['📍 Nearby', '💧 FRC Report', '⚡ ความนำไฟฟ้า'],
+        row2: ['🗺️ Contour Map (LIVE)', '🔍 Search Station']
       }
     });
   } catch (err) {
