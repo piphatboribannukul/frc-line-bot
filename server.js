@@ -1791,7 +1791,7 @@ function buildMenuCarousel() {
     {
       image: `${IMG_BASE}/menu-contour.png`,
       title: "🗺️ Contour Map",
-      desc: "แผนที่คลอรีน Real-Time",
+      desc: "แผนที่ Real-Time FRC/EC Contour\nZone Influence + EPANET Decay\n61 สถานี",
       action: { type: "uri", label: "เปิดแผนที่", uri: CONTOUR_URL },
       btnColor: "#0f172a"
     },
