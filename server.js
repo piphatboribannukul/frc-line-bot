@@ -1220,7 +1220,21 @@ async function replyDailySummary(replyToken) {
       type:"flex",altText:`📊 สรุปวัน — ${oe}${ot} FRC ${avgFrc} mg/L`,
       contents:{
         type:"bubble",size:"mega",
-        header:makeHeader('📊 สรุปประจำวัน',`(0.00 น. – ปัจจุบัน)\n${thaiDate()} ${thaiTime()} น.`,COLORS.headerDark,IMAGES.logo),
+        header:{
+          type:"box",layout:"vertical",backgroundColor:COLORS.headerDark,paddingAll:"16px",paddingBottom:"14px",
+          contents:[{
+            type:"box",layout:"horizontal",spacing:"lg",alignItems:"center",
+            contents:[
+              {type:"box",layout:"vertical",flex:0,width:"40px",height:"40px",cornerRadius:"12px",backgroundColor:"#ffffff20",justifyContent:"center",alignItems:"center",
+               contents:[{type:"image",url:IMAGES.logo,size:"32px",aspectMode:"fit",aspectRatio:"1:1"}]},
+              {type:"box",layout:"vertical",flex:5,contents:[
+                {type:"text",text:"📊 สรุปประจำวัน",color:"#ffffff",weight:"bold",size:"lg",wrap:true},
+                {type:"text",text:`(เวลา 0.00 น. – ปัจจุบัน)`,color:"#ffffffe0",size:"sm",weight:"bold",margin:"xs",wrap:true},
+                {type:"text",text:`${thaiDate()} ${thaiTime()} น.`,color:"#ffffffaa",size:"xs",margin:"xs",wrap:true},
+              ]}
+            ]
+          }]
+        },
         body:{type:"box",layout:"vertical",paddingAll:"10px",paddingTop:"8px",contents:body},
         footer:{type:"box",layout:"horizontal",paddingAll:"6px",spacing:"xs",contents:[
           {type:"button",action:{type:"message",label:"📋 ตารางสรุปวัน",text:"ตารางสรุปวัน"},height:"sm",style:"primary",color:COLORS.accent,flex:1},
