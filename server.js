@@ -494,7 +494,7 @@ async function checkAlerts() {
 
   const alertList = [];
   for (const s of sensors) {
-    if (s.frc <= 0) continue;
+    if (s.frc < 0) continue; // ข้าม FRC ติดลบเท่านั้น (0.00 ถือว่าผิดปกติ)
     const t = getThreshold(s.type, s.id);
     // แจ้งเตือนเฉพาะค่าต่ำเท่านั้น
     if (s.frc < t.low) {
@@ -714,7 +714,7 @@ async function handleTextMessage(replyToken, text, userId) {
     const sensors = await fetchSensors();
     const lowList = [], watchList = [], highList = [];
     for (const s of sensors) {
-      if (s.frc <= 0) continue;
+      if (s.frc < 0) continue;
       const t = getThreshold(s.type, s.id);
       const typeName = getStationType(s) === 'send' ? 'สูบส่ง' : getStationType(s) === 'pump' ? 'สูบจ่าย' : 'Monitor';
       if (s.frc < t.low) lowList.push(`  🔴 ${s.name}\n     FRC ${s.frc.toFixed(2)} มก/ล. (${typeName} เกณฑ์ <${t.low})`);
@@ -859,7 +859,7 @@ async function replyCurrentStatus(replyToken) {
   else { overallEmoji = '🔴'; overallText = 'ต้องติดตาม'; overallBg = '#fef2f2'; }
 
   const alertStations = sensors.filter(s => {
-    if (s.frc <= 0) return false;
+    if (s.frc < 0) return false;
     const t = getThreshold(s.type, s.id);
     return s.frc < t.low || s.frc > t.high;
   }).sort((a,b) => a.frc - b.frc).slice(0, 3);
@@ -1084,7 +1084,7 @@ async function handleSendAlert(replyToken) {
   if (!sensors.length) return lineReply(replyToken, [{type:'text',text:'❌ ไม่สามารถดึงข้อมูลได้'}]);
   const alertList = [];
   for (const s of sensors) {
-    if (s.frc <= 0) continue;
+    if (s.frc < 0) continue;
     const t = getThreshold(s.type, s.id);
     if (s.frc < t.low) alertList.push({...s, alertType:'ต่ำ', threshold:t});
     else if (s.frc > t.high) alertList.push({...s, alertType:'สูง', threshold:t});
