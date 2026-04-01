@@ -1745,7 +1745,7 @@ async function replyLowStations(replyToken) {
               type: "box", layout: "horizontal", margin: "xs",
               contents: [
                 { type: "text", text: `FRC: ${s.frc.toFixed(2)} mg/L`, size: "xs", color: COLORS.bad, flex: 3 },
-                { type: "text", text: s.area || '', size: "xs", color: COLORS.textMuted, flex: 2, align: "end" }
+                { type: "text", text: s.area || '-', size: "xs", color: COLORS.textMuted, flex: 2, align: "end" }
               ]
             }
           ]
