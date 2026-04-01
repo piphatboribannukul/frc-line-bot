@@ -687,14 +687,9 @@ async function handleTextMessage(replyToken, text, userId) {
     return replyDailyTable(replyToken);
   }
 
-  // ── สรุปวัน / daily
-  if (/สรุปวัน|สรุปทั้งวัน|daily|ประจำวัน/i.test(msg)) {
+  // ── สรุปวัน / สรุป / daily / รายงาน → ทั้งหมดไปสรุปวัน
+  if (/สรุปวัน|สรุป|daily|ประจำวัน|รายงาน|report|summary/i.test(msg)) {
     return replyDailySummary(replyToken);
-  }
-
-  // ── สรุป / รายงาน
-  if (/สรุป|รายงาน|report|summary/i.test(msg)) {
-    return replyFullReport(replyToken);
   }
 
   // ── EC / ค่าการนำไฟฟ้า (ฟีเจอร์ใหม่)
