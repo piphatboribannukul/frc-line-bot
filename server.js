@@ -1220,7 +1220,7 @@ async function replyDailySummary(replyToken) {
       type:"flex",altText:`📊 สรุปวัน — ${oe}${ot} FRC ${avgFrc} mg/L`,
       contents:{
         type:"bubble",size:"mega",
-        header:makeHeader('📊 สรุปประจำวัน (0.00 น. – ปัจจุบัน)',`${thaiDate()} ${thaiTime()} น.`,COLORS.headerDark,IMAGES.logo),
+        header:makeHeader('📊 สรุปประจำวัน',`(0.00 น. – ปัจจุบัน)\n${thaiDate()} ${thaiTime()} น.`,COLORS.headerDark,IMAGES.logo),
         body:{type:"box",layout:"vertical",paddingAll:"10px",paddingTop:"8px",contents:body},
         footer:{type:"box",layout:"horizontal",paddingAll:"6px",spacing:"xs",contents:[
           {type:"button",action:{type:"message",label:"📋 ตารางสรุปวัน",text:"ตารางสรุปวัน"},height:"sm",style:"primary",color:COLORS.accent,flex:1},
