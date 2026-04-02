@@ -1099,7 +1099,7 @@ async function handleSendAlert(replyToken) {
 async function handleBroadcastDaily(replyToken) {
   try {
     const snap = await get(ref(db, 'history'));
-    if (!snap.exists()) return lineReply(replyToken, withQuickReply([{type:'text',text:'❌ ไม่พบข้อมูลประวัติ'}]));
+    if (!snap.exists()) { if (replyToken) await lineReply(replyToken, withQuickReply([{type:'text',text:'❌ ไม่พบข้อมูลประวัติ'}])); return; }
     const today = new Date(); today.setHours(0,0,0,0);
     const todayMs = today.getTime();
     const stationReadings = {};
@@ -1107,7 +1107,7 @@ async function handleBroadcastDaily(replyToken) {
       const code = cs.key; if (code.startsWith('_')) return;
       cs.forEach(ps => { const p = ps.val(); if (p && p.ts >= todayMs && p.frc != null && p.frc > 0) { if (!stationReadings[code]) stationReadings[code] = []; stationReadings[code].push(p.frc); } });
     });
-    if (Object.keys(stationReadings).length === 0) return lineReply(replyToken, withQuickReply([{type:'text',text:'📊 ยังไม่มีข้อมูลสะสมวันนี้'}]));
+    if (Object.keys(stationReadings).length === 0) { if (replyToken) await lineReply(replyToken, withQuickReply([{type:'text',text:'📊 ยังไม่มีข้อมูลสะสมวันนี้'}])); return; }
     const sensors = await fetchSensors();
     const sMap = {}; for (const s of sensors) { sMap[String(s.id)] = s; sMap[String(s.id).replace(/\/|\./g,'-')] = s; }
     const daily = Object.entries(stationReadings).map(([code, r]) => { const avg = r.reduce((a,b)=>a+b,0)/r.length; const s = sMap[code]||{}; return {id:code,name:s.name||code,frc:parseFloat(avg.toFixed(3)),type:s.type||'monitor'}; });
@@ -1124,10 +1124,10 @@ async function handleBroadcastDaily(replyToken) {
     const flexMsg={type:"flex",altText:`📊 สรุปวัน — ${oe}${ot} FRC ${avgFrc} mg/L`,contents:{type:"bubble",size:"mega",header:{type:"box",layout:"vertical",backgroundColor:COLORS.headerDark,paddingAll:"16px",paddingBottom:"14px",contents:[{type:"box",layout:"horizontal",spacing:"lg",alignItems:"center",contents:[{type:"box",layout:"vertical",flex:0,width:"40px",height:"40px",cornerRadius:"12px",backgroundColor:"#ffffff20",justifyContent:"center",alignItems:"center",contents:[{type:"image",url:IMAGES.logo,size:"32px",aspectMode:"fit",aspectRatio:"1:1"}]},{type:"box",layout:"vertical",flex:5,contents:[{type:"text",text:"📊 สรุปประจำวัน",color:"#ffffff",weight:"bold",size:"lg",wrap:true},{type:"text",text:`(เวลา 0.00 น. – ปัจจุบัน)`,color:"#ffffffe0",size:"sm",weight:"bold",margin:"xs",wrap:true},{type:"text",text:`${thaiDate()} ${thaiTime()} น.`,color:"#ffffffaa",size:"xs",margin:"xs",wrap:true}]}]}]},body:{type:"box",layout:"vertical",paddingAll:"10px",paddingTop:"8px",contents:[{type:"box",layout:"horizontal",paddingAll:"10px",cornerRadius:"8px",backgroundColor:ob,contents:[{type:"text",text:oe,size:"xl",flex:0,gravity:"center"},{type:"box",layout:"vertical",flex:5,margin:"sm",contents:[{type:"text",text:`ภาพรวม: ${ot}`,size:"sm",weight:"bold",color:COLORS.textPrimary},{type:"text",text:`ปกติ ${allOk}/${total} สถานี (${normalPct}%)`,size:"xxs",color:COLORS.textSecondary},makeProgressBar(normalPct,normalPct>=80?COLORS.good:normalPct>=50?COLORS.warn:COLORS.bad)]}]},{type:"separator",margin:"sm"},makeStatRow("FRC เฉลี่ยทั้งวัน",`${avgFrc} mg/L`),{type:"separator",margin:"sm"},typeRow(IMAGES.iconSend,"สูบส่ง",sc,avgSend,"#dbeafe",'send'),typeRow(IMAGES.iconPump,"สูบจ่าย",pc,avgPump,"#d1fae5",'pump'),typeRow(IMAGES.iconMonitor,"Monitor",mc,avgMon,"#ede9fe",'monitor')]},footer:{type:"box",layout:"horizontal",paddingAll:"6px",spacing:"xs",contents:[{type:"button",action:{type:"uri",label:"🗺️ แผนที่",uri:CONTOUR_URL},height:"sm",style:"primary",color:"#0f172a",flex:1}]}}};
     await lineBroadcast([flexMsg]);
     console.log(`[Broadcast] ส่งสรุปวัน broadcast สำเร็จ`);
-    return lineReply(replyToken, withQuickReply([{type:'text',text:`📢 ส่งสรุปวัน Broadcast สำเร็จ\n\n${oe} ภาพรวม: ${ot}\nFRC เฉลี่ย: ${avgFrc} mg/L\nปกติ ${allOk}/${total} สถานี (${normalPct}%)`}]));
+    if (replyToken) await lineReply(replyToken, withQuickReply([{type:'text',text:`📢 ส่งสรุปวัน Broadcast สำเร็จ\n\n${oe} ภาพรวม: ${ot}\nFRC เฉลี่ย: ${avgFrc} mg/L\nปกติ ${allOk}/${total} สถานี (${normalPct}%)`}]));
   } catch(err) {
     console.error('[Broadcast Daily Error]', err.message);
-    return lineReply(replyToken, withQuickReply([{type:'text',text:'❌ ส่งสรุปวัน error: '+err.message}]));
+    if (replyToken) await lineReply(replyToken, withQuickReply([{type:'text',text:'❌ ส่งสรุปวัน error: '+err.message}]));
   }
 }
 
@@ -2242,8 +2242,8 @@ cron.schedule('*/10 * * * *', async () => {
 }, { timezone: 'Asia/Bangkok' });
 
 cron.schedule('0 8 * * *', () => {
-  console.log(`[Cron] ส่งรายงานประจำวัน — ${new Date().toISOString()}`);
-  sendDailyReport();
+  console.log(`[Cron] ส่งสรุปวัน 08:00 — ${new Date().toISOString()}`);
+  handleBroadcastDaily(null); // null replyToken = broadcast only, no reply
 }, { timezone: 'Asia/Bangkok' });
 
 // ═══════════════════════════════════════════════════════════════════════════════
