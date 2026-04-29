@@ -2232,9 +2232,14 @@ async function fetchAndSaveMkData() {
   try {
     const resp = await axios.get(MK_API_URL, { timeout: 30000 });
     const records = resp.data?.data || [];
-    if (!records.length) {
-      console.warn('[MK] API returned 0 records');
-      return;
+    // debug: ดู response structure
+    console.log('[MK] API response keys:', Object.keys(resp.data || {}));
+    console.log('[MK] records length:', records.length);
+    if (records.length > 0) {
+      console.log('[MK] sample record keys:', Object.keys(records[0]));
+      console.log('[MK] sample record:', JSON.stringify(records[0]).substring(0, 200));
+    } else {
+      console.log('[MK] raw response:', JSON.stringify(resp.data).substring(0, 300));
     }
 
     // หาค่าล่าสุดของแต่ละสถานี
