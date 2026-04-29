@@ -2232,15 +2232,14 @@ async function fetchAndSaveMkData() {
   try {
     const resp = await axios.get(MK_API_URL, { timeout: 30000 });
     const records = resp.data?.data || [];
-    // debug: ดู response structure
-    console.log('[MK] API response keys:', Object.keys(resp.data || {}));
     console.log('[MK] records length:', records.length);
-    if (records.length > 0) {
-      console.log('[MK] sample record keys:', Object.keys(records[0]));
-      console.log('[MK] sample record:', JSON.stringify(records[0]).substring(0, 200));
-    } else {
-      console.log('[MK] raw response:', JSON.stringify(resp.data).substring(0, 300));
-    }
+    // หา stn_id ของคลองตะวันตก
+    const klongTawan = records.filter(r => r.stn_name && r.stn_name.includes('คลองตะวัน'));
+    console.log('[MK] คลองตะวันตก records:', JSON.stringify(klongTawan.slice(0,3)));
+    // หา unique stn_id/stn_name
+    const uniqueStns = {};
+    records.forEach(r => { uniqueStns[r.stn_id] = r.stn_name; });
+    console.log('[MK] unique stations:', JSON.stringify(uniqueStns));
 
     // หาค่าล่าสุดของแต่ละสถานี
     const latest = {};
