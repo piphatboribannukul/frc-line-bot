@@ -2220,6 +2220,66 @@ app.get('/', (req, res) => {
 // Cron Jobs
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ── MK Raw Water Fetch (S14 คลองตะวันตก กม.14) ──────────────────────────────
+// Railway สามารถเรียก bigdata API ได้ (ไม่มี CORS) แล้วบันทึกลง Firebase
+// FRCContour อ่านจาก Firebase path rawmk/S14 แทน API โดยตรง
+
+const MK_API_URL = 'https://bigdata.mwa.co.th/data-service/internal/big-data/api/v1/783f543c-666c-35b4-795b-40dd2446b291/720721b3-cdaa-199d-9286-52f97cf00dfb/data?token=y0pBvoNbZSQWULB88PXeHBn2dHEgzaFyxSeH3V7a9jgWwn9VAmuGLhqkwrHLpdRm7wNn4DJsYLUT81JpZTwFqZkawNqdq2Osi1igZmYMlD37sKnU8Sy3aLgAQjKoHcdN';
+
+const MK_STATION_IDS = ['T5','S16','S11','S9','S12','S13','S14'];
+
+async function fetchAndSaveMkData() {
+  try {
+    const resp = await axios.get(MK_API_URL, { timeout: 30000 });
+    const records = resp.data?.data || [];
+    if (!records.length) {
+      console.warn('[MK] API returned 0 records');
+      return;
+    }
+
+    // หาค่าล่าสุดของแต่ละสถานี
+    const latest = {};
+    records.forEach(r => {
+      const sid = r.stn_id;
+      if (!MK_STATION_IDS.includes(sid)) return;
+      if (!latest[sid] || r.datetimes > latest[sid].datetimes) {
+        latest[sid] = r;
+      }
+    });
+
+    // บันทึกลง Firebase
+    const ts = Date.now();
+    const saves = Object.entries(latest).map(([sid, r]) => {
+      const data = {
+        ec:       r.conducted || 0,
+        temp:     r.temp      || 0,
+        ph:       r.ph        || 0,
+        turbid:   r.turbid    || 0,
+        deo:      r.deo       || 0,
+        salinity: r.salinity  || 0,
+        tds:      r.tds       || 0,
+        time:     r.datetimes,
+        ts,
+      };
+      // current value
+      const p1 = fbSet(ref(db, `rawmk/${sid}`), data);
+      // history (เก็บทุก 10 นาที)
+      const p2 = push(ref(db, `history/rawmk_${sid}`), { ec: data.ec, ts });
+      return Promise.all([p1, p2]);
+    });
+
+    await Promise.all(saves);
+    const s14ec = latest['S14']?.conducted;
+    console.log(`[MK] ✅ บันทึก ${Object.keys(latest).length} สถานี | S14 EC=${s14ec} µS/cm`);
+  } catch (e) {
+    console.error('[MK] ❌ fetch error:', e.message);
+  }
+}
+
+// รันทันทีตอน start และทุก 10 นาที
+fetchAndSaveMkData();
+cron.schedule('*/10 * * * *', fetchAndSaveMkData, { timezone: 'Asia/Bangkok' });
+
 cron.schedule('0 * * * *', () => {
   console.log(`[Cron] ตรวจ FRC alert (ทุก 1 ชม.) — ${new Date().toISOString()}`);
   checkAlerts();
