@@ -503,8 +503,8 @@ async function checkAlerts() {
     }
   }
 
-  // ล้าง alert เก่ากว่า 8 ชม. (cooldown: แจ้งซ้ำสถานีเดิมได้หลัง 8 ชม.)
-  const cutoff = Date.now() - 28800000;
+  // [v12.2] ล้าง alert เก่ากว่า 24 ชม. (cooldown: สถานีเดิมแจ้งวันละ 1 ครั้ง)
+  const cutoff = Date.now() - 86400000;
   for (const [k, v] of Object.entries(alertedStations)) {
     if (v < cutoff) delete alertedStations[k];
   }
@@ -2305,10 +2305,11 @@ cron.schedule('*/10 * * * *', async () => {
   }
 }, { timezone: 'Asia/Bangkok' });
 
-cron.schedule('0 8 * * *', () => {
-  console.log(`[Cron] ส่งสรุปวัน 08:00 — ${new Date().toISOString()}`);
-  handleBroadcastDaily(null); // null replyToken = broadcast only, no reply
-}, { timezone: 'Asia/Bangkok' });
+// [v12.2] ปิด broadcast สรุปวัน — ไม่ส่งอัตโนมัติแล้ว (ยังเรียก manual ได้ทาง chat)
+// cron.schedule('0 8 * * *', () => {
+//   console.log(`[Cron] ส่งสรุปวัน 08:00 — ${new Date().toISOString()}`);
+//   handleBroadcastDaily(null);
+// }, { timezone: 'Asia/Bangkok' });
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Start Server
@@ -2316,7 +2317,7 @@ cron.schedule('0 8 * * *', () => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 FRC Chlorine LINE Bot v12.1 running on port ${PORT}`);
+  console.log(`🚀 FRC Chlorine LINE Bot v12.2 running on port ${PORT}`);
   console.log(`   Webhook URL: POST /webhook`);
   console.log(`   Rich Menu Setup: POST /setup-richmenu`);
   console.log(`   🔒 Token from env: ${!LINE_TOKEN.includes('YB99') ? '✅' : '⚠️ ใช้ hardcoded — ควรย้ายเป็น env var'}`);
