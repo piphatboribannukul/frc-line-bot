@@ -1,6 +1,10 @@
+// LINE Messaging API — FRC Chlorine Monitoring Bot  v12.2
 // ═══════════════════════════════════════════════════════════════════════════════
-// LINE Messaging API — FRC Chlorine Monitoring Bot  v12.1
-// ═══════════════════════════════════════════════════════════════════════════════
+// Changelog v12.2 (จาก v12.1):
+//   🔒 Firebase: เปลี่ยนจาก Client SDK → Admin SDK (bypass App Check)
+//   📉 ปิด broadcast สรุปวัน อัตโนมัติ (ยังเรียก manual ได้)
+//   ⏱️ Alert cooldown: 8 ชม. → 24 ชม. (สถานีเดิมแจ้งวันละ 1 ครั้ง)
+//
 // Changelog v12.1 (จาก v12.0):
 //   🌸 Welcome Flex: เปลี่ยน follow event จาก text ธรรมดา → Flex Message สวยงาม
 //      - gradient header + LIVE badge + feature cards + action buttons
@@ -19,8 +23,7 @@ const express = require('express');
 const axios   = require('axios');
 const cron    = require('node-cron');
 const crypto  = require('crypto');
-const { initializeApp }  = require('firebase/app');
-const { getDatabase, ref, get, set: fbSet, push, onValue } = require('firebase/database');
+const admin   = require('firebase-admin');
 
 const app = express();
 
@@ -94,18 +97,29 @@ function nearbyMapUrl(userLat, userLon, stations) {
   return staticMapUrl(userLat, userLon, 14, 1040, 585, markers);
 }
 
-// 🔒 Firebase Config จาก env vars (fallback เป็นค่าเดิมเพื่อ backward compatibility)
-const firebaseConfig = {
-  apiKey:            process.env.FB_API_KEY            || "AIzaSyC0iyNwGCOIh-kbp6xDfijWBWKiE4iI_Lk",
-  authDomain:        process.env.FB_AUTH_DOMAIN        || "frc-contour.firebaseapp.com",
-  databaseURL:       process.env.FB_DATABASE_URL       || "https://frc-contour-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId:         process.env.FB_PROJECT_ID         || "frc-contour",
-  storageBucket:     process.env.FB_STORAGE_BUCKET     || "frc-contour.firebasestorage.app",
-  messagingSenderId: process.env.FB_MESSAGING_ID       || "772799472029",
-  appId:             process.env.FB_APP_ID             || "1:772799472029:web:8e6862082d8252a6d04f74"
-};
+// 🔒 Firebase Admin SDK — bypass App Check, ใช้ service account หรือ default credentials
+// ตั้ง env var FIREBASE_SERVICE_ACCOUNT = JSON string ของ service account key
+// หรือถ้ารันบน GCP จะใช้ default credentials อัตโนมัติ
+const FB_DB_URL = process.env.FB_DATABASE_URL || "https://frc-contour-default-rtdb.asia-southeast1.firebasedatabase.app";
 
-// ⚠️ ตรวจสอบ credentials ตอน start
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: FB_DB_URL
+  });
+  console.log('🔒 Firebase Admin: initialized with service account');
+} else {
+  // fallback: ใช้ databaseURL อย่างเดียว (จำกัดสิทธิ์ตาม RTDB rules)
+  admin.initializeApp({
+    databaseURL: FB_DB_URL
+  });
+  console.log('⚠️  Firebase Admin: initialized WITHOUT service account — RTDB rules ต้องเปิด public read/write');
+}
+
+const db = admin.database();
+
+// ⚠️ ตรวจสอบ LINE credentials ตอน start
 if (!LINE_TOKEN) {
   console.error('❌ FATAL: LINE_CHANNEL_ACCESS_TOKEN ไม่ได้ตั้งค่า!');
   console.error('   ตั้งค่า env var: LINE_CHANNEL_ACCESS_TOKEN=<your token>');
@@ -114,9 +128,6 @@ if (!LINE_TOKEN) {
 if (!LINE_SECRET) {
   console.warn('⚠️  LINE_CHANNEL_SECRET ไม่ได้ตั้งค่า — webhook signature verification ถูกปิด');
 }
-
-const fbApp = initializeApp(firebaseConfig);
-const db    = getDatabase(fbApp);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Thresholds & Station Types (เหมือนเดิม)
@@ -158,7 +169,7 @@ let waitingPlaceFrom = {};
 
 async function loadTargets() {
   try {
-    const snap = await get(ref(db, 'notify_targets'));
+    const snap = await db.ref('notify_targets').once('value');
     if (snap.exists()) {
       const data = snap.val();
       Object.keys(data).forEach(k => NOTIFY_TARGETS.add(data[k]));
@@ -185,7 +196,7 @@ async function fetchAllFollowers() {
         if (!NOTIFY_TARGETS.has(id)) {
           NOTIFY_TARGETS.add(id);
           try {
-            await fbSet(ref(db, `notify_targets/${id.replace(/[\/\.#\$\[\]]/g, '_')}`), id);
+            await db.ref(`notify_targets/${id.replace(/[\/\.#\$\[\]]/g, '_')}`).set(id);
           } catch(e) {}
         }
       }
@@ -201,7 +212,7 @@ async function saveTarget(targetId) {
   if (!targetId || NOTIFY_TARGETS.has(targetId)) return;
   NOTIFY_TARGETS.add(targetId);
   try {
-    await fbSet(ref(db, `notify_targets/${targetId.replace(/[\/\.#\$\[\]]/g, '_')}`), targetId);
+    await db.ref(`notify_targets/${targetId.replace(/[\/\.#\$\[\]]/g, '_')}`).set(targetId);
     console.log(`[Target] เพิ่ม ${targetId.substring(0, 10)}...`);
   } catch(e) { console.error('[SaveTarget]', e.message); }
 }
@@ -257,7 +268,7 @@ async function fetchSensors() {
   } catch (err) {
     console.error('[MWA API Error]', err.message);
     try {
-      const snap = await get(ref(db, 'live'));
+      const snap = await db.ref('live').once('value');
       if (snap.exists()) {
         const live = snap.val();
         return Object.entries(live).map(([id, v]) => ({
@@ -1098,7 +1109,7 @@ async function handleSendAlert(replyToken) {
 
 async function handleBroadcastDaily(replyToken) {
   try {
-    const snap = await get(ref(db, 'history'));
+    const snap = await db.ref('history').once('value');
     if (!snap.exists()) { if (replyToken) await lineReply(replyToken, withQuickReply([{type:'text',text:'❌ ไม่พบข้อมูลประวัติ'}])); return; }
     const today = new Date(); today.setHours(0,0,0,0);
     const todayMs = today.getTime();
@@ -1133,7 +1144,7 @@ async function handleBroadcastDaily(replyToken) {
 
 async function replyDailySummary(replyToken) {
   try {
-    const snap = await get(ref(db, 'history'));
+    const snap = await db.ref('history').once('value');
     if (!snap.exists()) {
       return lineReply(replyToken, withQuickReply([{ type: 'text', text: '❌ ไม่พบข้อมูลประวัติ' }]));
     }
@@ -1463,7 +1474,7 @@ async function replyDailyTable(replyToken) {
 
 async function replyDailyTableSummary(replyToken) {
   try {
-    const snap = await get(ref(db, 'history'));
+    const snap = await db.ref('history').once('value');
     if (!snap.exists()) return lineReply(replyToken, withQuickReply([{type:'text',text:'❌ ไม่พบข้อมูลประวัติ'}]));
 
     const today = new Date(); today.setHours(0,0,0,0);
@@ -2211,7 +2222,8 @@ app.get('/', (req, res) => {
     security: {
       tokenFromEnv: !LINE_TOKEN.includes('YB99'),
       signatureVerification: !!LINE_SECRET,
-      firebaseFromEnv: !!process.env.FB_API_KEY
+      firebaseAdmin: true,
+      firebaseServiceAccount: !!process.env.FIREBASE_SERVICE_ACCOUNT
     }
   });
 });
@@ -2266,9 +2278,9 @@ async function fetchAndSaveMkData() {
         ts,
       };
       // current value
-      const p1 = fbSet(ref(db, `rawmk/${sid}`), data);
+      const p1 = db.ref(`rawmk/${sid}`).set(data);
       // history (เก็บทุก 10 นาที)
-      const p2 = push(ref(db, `history/rawmk_${sid}`), { ec: data.ec, ts });
+      const p2 = db.ref(`history/rawmk_${sid}`).push({ ec: data.ec, ts });
       return Promise.all([p1, p2]);
     });
 
@@ -2296,7 +2308,7 @@ cron.schedule('*/10 * * * *', async () => {
     const ts = Date.now();
     const promises = sensors.map(s => {
       const code = String(s.id).replace(/[\/\.#\$\[\]]/g, '-');
-      return push(ref(db, `history/${code}`), { frc: s.frc, ts });
+      return db.ref(`history/${code}`).push({ frc: s.frc, ts });
     });
     await Promise.all(promises);
     console.log(`[Cron] บันทึก history ${sensors.length} สถานี`);
