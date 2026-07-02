@@ -1,5 +1,9 @@
-// LINE Messaging API — FRC Chlorine Monitoring Bot  v12.2
+// LINE Messaging API — FRC Chlorine Monitoring Bot  v12.3
 // ═══════════════════════════════════════════════════════════════════════════════
+// Changelog v12.3 (จาก v12.2):
+//   ⏱️ Alert cron: เปลี่ยนจากตรวจ "ทุก 1 ชม." → ตรวจ "วันละครั้ง 08:00 น."
+//   📋 Alert Flex: ยกเลิกการตัดที่ 8 สถานี — ลิสต์ทุกสถานีที่ผิดปกติรวมในข้อความเดียว (ประหยัด broadcast quota)
+//
 // Changelog v12.2 (จาก v12.1):
 //   🔒 Firebase: เปลี่ยนจาก Client SDK → Admin SDK (bypass App Check)
 //   📉 ปิด broadcast สรุปวัน อัตโนมัติ (ยังเรียก manual ได้)
@@ -514,7 +518,8 @@ async function checkAlerts() {
     }
   }
 
-  // [v12.2] ล้าง alert เก่ากว่า 24 ชม. (cooldown: สถานีเดิมแจ้งวันละ 1 ครั้ง)
+  // [v12.3] ล้าง alert เก่ากว่า 24 ชม. — กันไม่ให้ซ้ำถ้ามีการเรียก checkAlerts() เพิ่มเติมในวันเดียวกัน
+  // (การแจ้งเตือนอัตโนมัติหลักตอนนี้รันวันละครั้งเดียวตาม cron ด้านล่าง)
   const cutoff = Date.now() - 86400000;
   for (const [k, v] of Object.entries(alertedStations)) {
     if (v < cutoff) delete alertedStations[k];
@@ -523,7 +528,7 @@ async function checkAlerts() {
   if (alertList.length === 0) return;
   const flexMsg = buildAlertFlex(alertList);
   await lineBroadcast([flexMsg]);
-  console.log(`[Alert] ส่งแจ้งเตือน ${alertList.length} สถานี (เฉพาะค่าต่ำ)`);
+  console.log(`[Alert] ส่งแจ้งเตือนประจำวัน ${alertList.length} สถานี (เฉพาะค่าต่ำ) — รวมเป็น broadcast เดียว`);
 }
 
 function buildAlertFlex(alerts) {
@@ -544,7 +549,8 @@ function buildAlertFlex(alerts) {
     { type: "separator", margin: "lg" },
   ];
 
-  for (const s of alerts.slice(0, 8)) {
+  // [v12.3] แจ้งวันละครั้ง → ลิสต์ทุกสถานีที่ผิดปกติในข้อความเดียว ไม่ตัดที่ 8 สถานีแล้ว
+  for (const s of alerts) {
     const st = frcStatus(s.frc, s.type, s.id);
     bodyContents.push({
       type: "box", layout: "horizontal", margin: "md",
@@ -2098,7 +2104,7 @@ function replyHelp(replyToken) {
           { type: "separator" },
           { type: "text", text: "🔔 แจ้งเตือน", weight: "bold", size: "sm", color: COLORS.textPrimary },
           makeHelpRow("📢", "ส่งแจ้งเตือน", "ส่ง Push แจ้งเตือนค่าผิดปกติ Manual"),
-          { type: "text", text: "อัตโนมัติ: ตรวจทุก 1 ชม. · แจ้งเฉพาะค่าต่ำ · cooldown 8 ชม.", size: "xxs", color: COLORS.textMuted, wrap: true },
+          { type: "text", text: "อัตโนมัติ: ตรวจวันละครั้ง 08:00 น. · แจ้งเฉพาะค่าต่ำ · รวมทุกสถานีในข้อความเดียว", size: "xxs", color: COLORS.textMuted, wrap: true },
           { type: "text", text: "สูบส่ง: ดี>1.0 ต่ำ<0.5 | สูบจ่าย: ดี>0.8 ต่ำ<0.5", size: "xxs", color: COLORS.textMuted, wrap: true },
           { type: "text", text: "Monitor: ดี>0.4 ต่ำ<0.2", size: "xxs", color: COLORS.textMuted, wrap: true },
         ]
@@ -2215,8 +2221,8 @@ app.post('/webhook', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    bot: 'FRC Chlorine LINE Bot v12.1',
-    version: '12.1',
+    bot: 'FRC Chlorine LINE Bot v12.3',
+    version: '12.3',
     time: new Date().toISOString(),
     targets: NOTIFY_TARGETS.size,
     security: {
@@ -2296,8 +2302,9 @@ async function fetchAndSaveMkData() {
 fetchAndSaveMkData();
 cron.schedule('*/10 * * * *', fetchAndSaveMkData, { timezone: 'Asia/Bangkok' });
 
-cron.schedule('0 * * * *', () => {
-  console.log(`[Cron] ตรวจ FRC alert (ทุก 1 ชม.) — ${new Date().toISOString()}`);
+// [v12.3] เปลี่ยนจากตรวจทุก 1 ชม. → ตรวจวันละครั้ง แล้วรวมทุกสถานีผิดปกติส่งเป็น broadcast เดียว (ประหยัด broadcast quota)
+cron.schedule('0 8 * * *', () => {
+  console.log(`[Cron] ตรวจ FRC alert ประจำวัน (08:00 น.) — ${new Date().toISOString()}`);
   checkAlerts();
 }, { timezone: 'Asia/Bangkok' });
 
@@ -2329,7 +2336,7 @@ cron.schedule('*/10 * * * *', async () => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 FRC Chlorine LINE Bot v12.2 running on port ${PORT}`);
+  console.log(`🚀 FRC Chlorine LINE Bot v12.3 running on port ${PORT}`);
   console.log(`   Webhook URL: POST /webhook`);
   console.log(`   Rich Menu Setup: POST /setup-richmenu`);
   console.log(`   🔒 Token from env: ${!LINE_TOKEN.includes('YB99') ? '✅' : '⚠️ ใช้ hardcoded — ควรย้ายเป็น env var'}`);
