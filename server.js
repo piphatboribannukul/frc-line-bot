@@ -28,6 +28,7 @@ const axios   = require('axios');
 const cron    = require('node-cron');
 const crypto  = require('crypto');
 const admin   = require('firebase-admin');
+const { spawn } = require('child_process');
 
 const app = express();
 
@@ -2301,6 +2302,24 @@ async function fetchAndSaveMkData() {
 // รันทันทีตอน start และทุก 10 นาที
 fetchAndSaveMkData();
 cron.schedule('*/10 * * * *', fetchAndSaveMkData, { timezone: 'Asia/Bangkok' });
+// ── ⚡ EC Forecast (XGBoost) — พยากรณ์ EC ล่วงหน้า 24/48 ชม. ทุกชั่วโมง ──────
+// รัน predict_ec.py → ดึง TWQMS ล่าสุด → เขียน /forecast/ec/{station} ใน Firebase
+function runECForecast() {
+  const p = spawn('python3', ['predict_ec.py'], {
+    cwd: __dirname,
+    env: { ...process.env, FIREBASE_URL: FB_DB_URL },   // ใช้ FB_DATABASE_URL เดิม ไม่ต้องตั้งใหม่
+  });
+  p.stdout.on('data', d => console.log(`[EC-Forecast] ${d.toString().trim()}`));
+  p.stderr.on('data', d => console.error(`[EC-Forecast] ⚠️ ${d.toString().trim()}`));
+  p.on('close', code => {
+    if (code !== 0) console.error(`[EC-Forecast] ❌ exit code ${code}`);
+  });
+  p.on('error', err => console.error(`[EC-Forecast] ❌ spawn error: ${err.message}`));
+}
+
+// รันครั้งแรกหลัง start 2 นาที (รอ server พร้อม) แล้วทุกชั่วโมงนาทีที่ 5
+setTimeout(runECForecast, 2 * 60 * 1000);
+cron.schedule('5 * * * *', runECForecast, { timezone: 'Asia/Bangkok' });
 
 // [v12.3] เปลี่ยนจากตรวจทุก 1 ชม. → ตรวจวันละครั้ง แล้วรวมทุกสถานีผิดปกติส่งเป็น broadcast เดียว (ประหยัด broadcast quota)
 cron.schedule('0 8 * * *', () => {
