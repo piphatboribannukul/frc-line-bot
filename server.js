@@ -2338,6 +2338,19 @@ cron.schedule('*/10 * * * *', async () => {
     });
     await Promise.all(promises);
     console.log(`[Cron] บันทึก history ${sensors.length} สถานี`);
+
+    // ── เขียน EC ล่าสุดลง /history_ec/{YYYYMMDDHH} สำหรับ predict_ec.py ──
+    // key = ชื่อไทยของสถานี (ตรงกับชื่อในโมเดล) · เก็บรายชั่วโมง (เขียนทับในชั่วโมงเดียวกัน)
+    const ecObj = {};
+    for (const s of sensors) {
+      if (s.ec != null && !isNaN(s.ec) && s.ec > 0) ecObj[s.name] = s.ec;
+    }
+    if (Object.keys(ecObj).length) {
+      const d = new Date(ts + 7 * 3600 * 1000);  // เวลาไทย
+      const hourKey = `${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,'0')}${String(d.getUTCDate()).padStart(2,'0')}${String(d.getUTCHours()).padStart(2,'0')}`;
+      await db.ref(`history_ec/${hourKey}`).update(ecObj);
+      console.log(`[Cron] บันทึก EC ${Object.keys(ecObj).length} สถานี → history_ec/${hourKey}`);
+    }
   } catch(e) {
     console.error('[Cron] History save error:', e.message);
   }
