@@ -71,25 +71,26 @@ def get_model(station, fp):
 def norm(s):
     return unicodedata.normalize("NFC", str(s)).strip()
 
-def fetch_from_live():
+def fetch_latest_ec():
+    """อ่าน EC ล่าสุดจาก /history_ec (ที่ server.js เขียนทุก 10 นาที)
+    คืน dict {ชื่อสถานี: ec} ของชั่วโมงล่าสุดที่มีข้อมูล"""
     try:
-        live = fdb.reference("live").get() or {}
+        raw = fdb.reference("history_ec").get() or {}
     except Exception as e:
-        print(f"[EC] อ่าน /live ไม่ได้: {e}")
+        print(f"[EC] อ่าน /history_ec ไม่ได้: {e}")
         return {}
+    if not raw:
+        return {}
+    latest_key = max(raw.keys())  # YYYYMMDDHH ล่าสุด
+    hour = raw[latest_key]
     out = {}
-    for sid, v in live.items():
-        if not isinstance(v, dict):
-            continue
-        ec = v.get("ec") or v.get("conductivity") or v.get("cond") or v.get("avg5")
-        name = norm(v.get("name") or v.get("stationName") or sid)
-        if ec is not None:
-            try:
-                fv = float(ec)
-                if 0 < fv < 2500:
-                    out[name] = fv
-            except (TypeError, ValueError):
-                pass
+    for name, ec in hour.items():
+        try:
+            fv = float(ec)
+            if 0 < fv < 2500:
+                out[norm(name)] = fv
+        except (TypeError, ValueError):
+            pass
     return out
 
 def fetch_from_twqms():
@@ -151,20 +152,36 @@ def build_features(hist, station, fp, now):
 def main():
     init_firebase()
     now = pd.Timestamp(datetime.now(BKK)).floor("h").tz_localize(None)
-    readings = fetch_from_live(); src = "live"
+    readings = fetch_latest_ec(); src = "history_ec"
     if len(readings) < 5:
         tw = fetch_from_twqms()
         if len(tw) > len(readings): readings, src = tw, "twqms"
     print(f"[EC] [{now}] อ่านค่าล่าสุด {len(readings)} สถานี (จาก {src})")
 
     model_names = {norm(k): k for k in cfg["stations"]}
-    matched = {model_names[norm(k)]: v for k, v in readings.items() if norm(k) in model_names}
-    unmatched = [k for k in readings if norm(k) not in model_names]
+    # จับคู่ชื่อ: ตรงเป๊ะก่อน ถ้าไม่ได้ลอง prefix (ชื่อโมเดลถูกตัด 30 ตัวอักษรจาก Excel)
+    matched = {}
+    unmatched = []
+    model_norm_list = list(model_names.items())  # [(norm_name, orig_name)]
+    for k, v in readings.items():
+        nk = norm(k)
+        if nk in model_names:
+            matched[model_names[nk]] = v
+            continue
+        # prefix: ชื่อโมเดล (สั้น) เป็นคำขึ้นต้นของชื่อ API (ยาว) หรือกลับกัน
+        hit = None
+        for mn, orig in model_norm_list:
+            if len(mn) >= 10 and (nk.startswith(mn) or mn.startswith(nk[:30])):
+                hit = orig
+                break
+        if hit:
+            matched[hit] = v
+        else:
+            unmatched.append(k)
     if unmatched:
         print(f"[EC] ชื่อไม่ตรงโมเดล {len(unmatched)}: {unmatched[:8]}")
-    if matched:
-        append_buffer(matched, now)
-
+    # หมายเหตุ: server.js เขียน /history_ec ให้แล้วทุก 10 นาที
+    # predict_ec.py แค่อ่าน buffer มาสร้าง features (ไม่ต้องเขียนซ้ำ)
     hist = load_buffer()
     if hist.empty:
         print("[EC] buffer ว่าง — ยังพยากรณ์ไม่ได้ (รอสะสม หรือ backfill)")
