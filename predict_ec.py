@@ -22,15 +22,22 @@ BKK = timezone(timedelta(hours=7))
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 FB_DB_URL = os.environ.get("FB_DATABASE_URL") or os.environ.get("FIREBASE_URL")
 
+# URL ของ models.tar.gz ใน GitHub Release (แก้เป็น repo จริง)
+MODELS_URL = os.environ.get("MODELS_URL",
+    "https://github.com/piphatboribannukul/REPO/releases/download/models-v1/models.tar.gz")
+
 if not os.path.isdir(MODEL_DIR):
     import tarfile
     _tgz = os.path.join(os.path.dirname(__file__), "models.tar.gz")
-    if os.path.exists(_tgz):
-        with tarfile.open(_tgz) as _t:
-            _t.extractall(os.path.dirname(__file__) or ".")
-        print("[EC] แตกโมเดลจาก models.tar.gz แล้ว")
-    else:
-        raise SystemExit("[EC] ไม่พบ models/ และ models.tar.gz")
+    # ถ้าไม่มีไฟล์ในเครื่อง → ดาวน์โหลดจาก GitHub Release
+    if not os.path.exists(_tgz):
+        import urllib.request
+        print(f"[EC] ดาวน์โหลดโมเดลจาก Release ...")
+        urllib.request.urlretrieve(MODELS_URL, _tgz)
+        print(f"[EC] ดาวน์โหลดเสร็จ ({os.path.getsize(_tgz)//1024//1024} MB)")
+    with tarfile.open(_tgz) as _t:
+        _t.extractall(os.path.dirname(__file__) or ".")
+    print("[EC] แตกโมเดลแล้ว")
 
 def init_firebase():
     if firebase_admin._apps:
