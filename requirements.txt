@@ -1,3 +1,5 @@
 xgboost
 pandas
+numpy
+firebase-admin
 requests
