@@ -220,15 +220,18 @@ def main():
 def backfill_from_csv(csv_path, hours=300):
     init_firebase()
     dfm = pd.read_csv(csv_path, index_col=0, parse_dates=True).tail(hours)
+    n = 0
     for ts, row in dfm.iterrows():
         vals = {k: float(v) for k, v in row.items() if pd.notna(v)}
         if vals:
             fdb.reference(f"history_ec/{ts.strftime('%Y%m%d%H')}").update(vals)
-    print(f"[EC] backfill {len(dfm)} ชม. เสร็จ")
+            n += 1
+    print(f"[EC] backfill {n} ชม. เข้า /history_ec เสร็จ")
 
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "backfill":
-        backfill_from_csv(sys.argv[2] if len(sys.argv) > 2 else "ec_master.csv")
+        path = sys.argv[2] if len(sys.argv) > 2 else "ec_backfill.csv"
+        backfill_from_csv(path)
     else:
         main()
