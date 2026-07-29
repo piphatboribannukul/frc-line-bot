@@ -63,10 +63,14 @@ def get_model(station, fp):
         info = cfg["stations"].get(station, {}).get("horizons", {}).get(str(fp))
         if not info:
             return None
-        m = xgb.XGBRegressor()
+        m = xgb.Booster()  # core API — ไม่ต้องพึ่ง scikit-learn
         m.load_model(os.path.join(MODEL_DIR, info["model_file"]))
         _models[key] = m
     return _models[key]
+
+def predict_one(model, X):
+    """X = DataFrame 1 แถว มี feature names ครบ → คืนค่าพยากรณ์ (float)"""
+    return float(model.predict(xgb.DMatrix(X))[0])
 
 def norm(s):
     return unicodedata.normalize("NFC", str(s)).strip()
@@ -205,7 +209,7 @@ def main():
             if m is None: continue
             X = build_features(hist, st, fp, now)
             if X.notna().sum(axis=1).iloc[0] == 0: continue
-            v = float(m.predict(X)[0]); vals[fp] = v
+            v = predict_one(m, X); vals[fp] = v
             entry[f"h{fp}"] = round(v, 1); entry[f"h{fp}_alert"] = v > 600
         if cur is not None and 24 in vals:
             p24, p48 = vals[24], vals.get(48, vals[24]); fc = []
