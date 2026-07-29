@@ -218,7 +218,8 @@ def main():
                 fc.append(round(v, 1))
             entry["fc"] = fc
         if "h24" in entry or "h48" in entry:
-            data[st] = entry
+            entry["name"] = st  # เก็บชื่อจริงไว้ให้หน้าเว็บแสดง
+            data[fb_key(st)] = entry
 
     payload = {"ts": int(now.timestamp() * 1000), "updated": now.isoformat(), "data": data}
     fdb.reference("forecast/ec").set(payload)
