@@ -2340,10 +2340,11 @@ cron.schedule('*/10 * * * *', async () => {
     console.log(`[Cron] บันทึก history ${sensors.length} สถานี`);
 
     // ── เขียน EC ล่าสุดลง /history_ec/{YYYYMMDDHH} สำหรับ predict_ec.py ──
-    // key = ชื่อไทยของสถานี (ตรงกับชื่อในโมเดล) · เก็บรายชั่วโมง (เขียนทับในชั่วโมงเดียวกัน)
+    // key = ชื่อไทยของสถานี (sanitize อักขระต้องห้ามของ Firebase: . $ # [ ] /)
+    const ecKey = (name) => name.replace(/[.\$#\[\]\/]/g, '_');
     const ecObj = {};
     for (const s of sensors) {
-      if (s.ec != null && !isNaN(s.ec) && s.ec > 0) ecObj[s.name] = s.ec;
+      if (s.ec != null && !isNaN(s.ec) && s.ec > 0) ecObj[ecKey(s.name)] = s.ec;
     }
     if (Object.keys(ecObj).length) {
       const d = new Date(ts + 7 * 3600 * 1000);  // เวลาไทย
