@@ -135,7 +135,8 @@ def load_buffer(hours=200):
 
 def build_features(hist, station, fp, now):
     FEATS = FEATS_BY_FP[str(fp)]
-    s = hist[station] if station in hist.columns else pd.Series(dtype=float)
+    col = fb_key(station)  # ชื่อคอลัมน์ใน buffer เป็นแบบ sanitized
+    s = hist[col] if col in hist.columns else pd.Series(dtype=float)
     row = {}
     for f in FEATS:
         if f.startswith("self"):
@@ -143,8 +144,10 @@ def build_features(hist, station, fp, now):
         elif f == "rm":
             w = s[(s.index > now - pd.Timedelta(hours=24)) & (s.index <= now)]
             row[f] = w.mean() if len(w) else np.nan
-        elif f == "src_bk": row[f] = hist[TR1].get(now, np.nan) if TR1 in hist.columns else np.nan
-        elif f == "src_ms": row[f] = hist[MS].get(now, np.nan) if MS in hist.columns else np.nan
+        elif f == "src_bk":
+            bk = fb_key(TR1); row[f] = hist[bk].get(now, np.nan) if bk in hist.columns else np.nan
+        elif f == "src_ms":
+            ms = fb_key(MS); row[f] = hist[ms].get(now, np.nan) if ms in hist.columns else np.nan
         elif f == "h": row[f] = (now + pd.Timedelta(hours=fp)).hour
         elif f == "mo": row[f] = (now + pd.Timedelta(hours=fp)).month
     return pd.DataFrame([row])[FEATS]
@@ -191,9 +194,10 @@ def main():
     data = {}
     for st in cfg["stations"]:
         entry = {"unit": "uS/cm"}; cur = None
-        if st in hist.columns and hist[st].notna().any():
-            cur = float(hist[st].dropna().iloc[-1]); entry["current"] = round(cur, 1)
-            win = hist[st].reindex(pd.date_range(now - pd.Timedelta(hours=47), now, freq="h"))
+        col = fb_key(st)
+        if col in hist.columns and hist[col].notna().any():
+            cur = float(hist[col].dropna().iloc[-1]); entry["current"] = round(cur, 1)
+            win = hist[col].reindex(pd.date_range(now - pd.Timedelta(hours=47), now, freq="h"))
             entry["hist"] = [None if pd.isna(v) else round(float(v), 1) for v in win.values]
         vals = {}
         for fp in (24, 48):
@@ -217,12 +221,18 @@ def main():
     n_alert = sum(1 for e in data.values() if e.get("h24_alert"))
     print(f"[EC] เขียนพยากรณ์ {len(data)} สถานี | เตือน >600: {n_alert}")
 
+def fb_key(name):
+    """แปลงชื่อสถานีเป็น Firebase key ที่ปลอดภัย (ห้ามมี . $ # [ ] /)"""
+    for c in '.$#[]/':
+        name = name.replace(c, '_')
+    return name
+
 def backfill_from_csv(csv_path, hours=300):
     init_firebase()
     dfm = pd.read_csv(csv_path, index_col=0, parse_dates=True).tail(hours)
     n = 0
     for ts, row in dfm.iterrows():
-        vals = {k: float(v) for k, v in row.items() if pd.notna(v)}
+        vals = {fb_key(k): float(v) for k, v in row.items() if pd.notna(v)}
         if vals:
             fdb.reference(f"history_ec/{ts.strftime('%Y%m%d%H')}").update(vals)
             n += 1
