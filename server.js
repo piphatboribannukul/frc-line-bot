@@ -29,6 +29,7 @@ const cron    = require('node-cron');
 const crypto  = require('crypto');
 const admin   = require('firebase-admin');
 const { spawn } = require('child_process');
+const { checkEquipmentDue } = require('./linebot_equipment_alert');
 
 const app = express();
 
@@ -689,6 +690,12 @@ function buildDailyReportFlex({ total, good, mid, low, avgFrc, minS, maxS, lowSt
 
 async function handleTextMessage(replyToken, text, userId) {
   const msg = text.trim();
+
+  // ── วาระเปลี่ยนเซ็นเซอร์/อุปกรณ์ (ถามสถานะได้ทุกเมื่อ ไม่ต้องรอ cron วันที่ 1)
+  if (/^เซ็นเซอร์$|วาระเปลี่ยน|เปลี่ยนเซ็นเซอร์/i.test(msg)) {
+    const replyClient = { pushMessage: async ({ messages }) => lineReply(replyToken, messages) };
+    return checkEquipmentDue(replyClient, userId, { always: true });
+  }
 
   // ── คลอรีน / FRC / สถานะ
   if (/คลอรีน|frc|สถานะ|status|ค่าน้ำ/i.test(msg)) {
@@ -2322,6 +2329,19 @@ setTimeout(runECForecast, 2 * 60 * 1000);
 cron.schedule('5 * * * *', runECForecast, { timezone: 'Asia/Bangkok' });
 
 // [v12.3] เปลี่ยนจากตรวจทุก 1 ชม. → ตรวจวันละครั้ง แล้วรวมทุกสถานีผิดปกติส่งเป็น broadcast เดียว (ประหยัด broadcast quota)
+// [29/08/69] แจ้งเตือนวาระเปลี่ยนเซ็นเซอร์/อุปกรณ์ ทุกวันที่ 1 เวลา 08:00
+// ส่งหาทุกคนใน NOTIFY_TARGETS ชุดเดียวกับ alert คุณภาพน้ำ
+cron.schedule('0 8 1 * *', async () => {
+  console.log(`[Cron] แจ้งเตือนวาระเปลี่ยนเซ็นเซอร์ประจำเดือน — targets ${NOTIFY_TARGETS.size} คน`);
+  const bcClient = { pushMessage: async ({ messages }) => {
+    for (const t of NOTIFY_TARGETS) await linePush(t, messages);
+  } };
+  try {
+    const r = await checkEquipmentDue(bcClient, 'broadcast');
+    console.log(`[Cron] วาระเซ็นเซอร์: sent=${r.sent} groups=${r.groups ?? 0}`);
+  } catch (e) { console.error('[Cron] วาระเซ็นเซอร์ error:', e.message); }
+}, { timezone: 'Asia/Bangkok' });
+
 cron.schedule('0 8 * * *', () => {
   console.log(`[Cron] ตรวจ FRC alert ประจำวัน (08:00 น.) — ${new Date().toISOString()}`);
   checkAlerts();
