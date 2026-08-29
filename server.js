@@ -2332,12 +2332,10 @@ cron.schedule('*/10 * * * *', async () => {
     const sensors = await fetchSensors();
     if (!sensors.length) return;
     const ts = Date.now();
-    const promises = sensors.map(s => {
-      const code = String(s.id).replace(/[\/\.#\$\[\]]/g, '-');
-      return db.ref(`history/${code}`).push({ frc: s.frc, ts });
-    });
-    await Promise.all(promises);
-    console.log(`[Cron] บันทึก history ${sensors.length} สถานี`);
+    // [29/08/69] ตัดการเขียน history/{station} ออก — poll.yml (GitHub Action ทุก 5 นาที)
+    // เป็นผู้เขียน history เจ้าเดียว: กัน key ปนสองแบบ (push-ID vs timestamp),
+    // ลดข้อมูลซ้ำซ้อน ~2 เท่า และลดภาระ prune รายวัน
+    // (การอ่าน history ของ bot สำหรับกราฟ/สถิติ ยังทำงานปกติ — poll.yml เติมข้อมูลให้)
 
     // ── เขียน EC ล่าสุดลง /history_ec/{YYYYMMDDHH} สำหรับ predict_ec.py ──
     // key = ชื่อไทยของสถานี (sanitize อักขระต้องห้ามของ Firebase: . $ # [ ] /)
@@ -2353,7 +2351,7 @@ cron.schedule('*/10 * * * *', async () => {
       console.log(`[Cron] บันทึก EC ${Object.keys(ecObj).length} สถานี → history_ec/${hourKey}`);
     }
   } catch(e) {
-    console.error('[Cron] History save error:', e.message);
+    console.error('[Cron] EC save error:', e.message);
   }
 }, { timezone: 'Asia/Bangkok' });
 
