@@ -24,6 +24,11 @@ const STATION_ALIASES = {
 };
 
 const REPAIR_COMPANY = 'บริษัท เพทโทร-อินสตรูเม้นท์ จำกัด';
+const IN_HOUSE_ORG = 'กองบูรณาการคุณภาพน้ำ (กปน.)';
+// 10 สถานีสูบจ่ายน้ำที่ กบน. ดูแลเอง — ไม่ส่งเมลผู้รับจ้าง
+const IN_HOUSE = new Set(['ลาดพร้าว','คลองเตย','สำโรง','มีนบุรี','ลาดกระบัง','บางพลี','ราษฎร์บูรณะ','เพชรเกษม','ท่าพระ','ลุมพินี']
+  .map(n => 'สถานีสูบจ่ายน้ำ' + n));
+const companyOf = station => IN_HOUSE.has(station) ? IN_HOUSE_ORG : REPAIR_COMPANY;
 const REPAIR_FROM_ORG = 'กองบูรณาการคุณภาพน้ำ';
 
 const PARAM_KEYS = [
@@ -55,6 +60,13 @@ function thTimeHM() {
 }
 const thDateDisp = iso => { const [y,m,d]=iso.split('-').map(Number);
   return `${d}/${m}/${y+543}`; };
+const TH_WD=['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
+const TH_MO=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+function thDateFull(iso) {   // "วันอาทิตย์ที่ 30 สิงหาคม 2569"
+  const [y, m, d] = iso.split('-').map(Number);
+  const wd = TH_WD[new Date(iso + 'T12:00:00+07:00').getDay()];
+  return `วัน${wd}ที่ ${d} ${TH_MO[m - 1]} ${y + 543}`;
+}
 
 /* จับชื่อสถานีแบบยืดหยุ่น: ตัดคำนำหน้า, คะแนนจากคำที่ทับกัน */
 function matchStation(text) {
@@ -127,29 +139,38 @@ function makeRepairApi(db, opts) {
       <hr><p style="color:#888;font-size:12px;">ออกใบอัตโนมัติจากระบบ FRCContour — กองบูรณาการคุณภาพน้ำ กปน.</p></div>`;
   }
 
+  const thBE = iso => { const [y,m,d]=iso.split('-').map(Number); return `${d}/${m}/${y+543}`; };
   async function sendRepairMail(t) {
     if (!process.env.MAIL_WEBHOOK) return { ok: false, err: 'ยังไม่ได้ตั้ง MAIL_WEBHOOK' };
+    const inHouse = t.company === IN_HOUSE_ORG;
+    // แถวลง Google Sheet (แท็บ Data) — 1 แถวต่อ 1 พารามิเตอร์ ตามโครงชีตเดิม
+    const rows = t.items.map(it => ['', t.num, '', t.no, thBE(t.dateIssue), t.timeIssue,
+      thBE(t.foundDate), t.foundTime, t.station, it.param, it.problem + (it.note ? ' (' + it.note + ')' : ''),
+      t.reporter, t.company, '', '', '', '']);
     try {
       const r = await fetch(process.env.MAIL_WEBHOOK, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           secret: process.env.MAIL_SECRET || '',
-          to: process.env.REPAIR_TO || 'boribannukul@gmail.com',
-          cc: process.env.REPAIR_CC || '',
-          subject: `ใบแจ้งซ่อม ${t.no} — ${t.station}`,
-          html: emailHtml(t),
+          rows,
+          mail: inHouse ? null : {
+            to: process.env.REPAIR_TO || 'boribannukul@gmail.com',
+            cc: process.env.REPAIR_CC || '',
+            subject: `ใบแจ้งซ่อม ${t.no} — ${t.station}`,
+            html: emailHtml(t),
+          },
         }),
         redirect: 'follow',
       });
       const body = await r.text();
       let j = {}; try { j = JSON.parse(body); } catch (_) {}
-      if (j.ok) return { ok: true };
+      if (j.ok) return { ok: true, inHouse };
       return { ok: false, err: j.error || ('HTTP ' + r.status) };
     } catch (e) { return { ok: false, err: e.message }; }
   }
 
   /** สร้าง/รวมใบแจ้งซ่อม — items: [{param, problem, note?}] */
-  async function createTicket({ station, items, foundDate, foundTime, reporter, via }, opts = {}) {
+  async function createTicket({ station, items, foundDate, foundTime, reporter, via }) {
     const exist = await findTodayTicket(station);
     if (exist) {
       const cur = exist.ticket.items || [];
@@ -166,17 +187,8 @@ function makeRepairApi(db, opts) {
     const t = { no, num, station, items,
       dateIssue: thDateISO(), timeIssue: thTimeHM(),
       foundDate: foundDate || thDateISO(), foundTime: foundTime || thTimeHM(),
-      reporter: reporter || '-', via: via || 'web', company: REPAIR_COMPANY,
+      reporter: reporter || '-', via: via || 'web', company: companyOf(station),
       status: 'open', ts: Date.now() };
-    if (opts.deferMail) {
-      // ตอบผู้ใช้ทันที — เมลส่งพื้นหลังแล้วค่อยอัปเดตสถานะลงใบ (Apps Script cold start 2-6 วิ)
-      t.emailSent = null;
-      const ref = await db.ref('repairs').push(t);
-      const mailPromise = sendRepairMail(t)
-        .then(m => ref.update({ emailSent: m.ok, ...(m.ok ? {} : { emailErr: m.err }) }))
-        .catch(e => ref.update({ emailSent: false, emailErr: e.message }));
-      return { created: true, no, deferred: true, mailPromise, ticket: t };
-    }
     const mail = await sendRepairMail(t);
     t.emailSent = mail.ok; if (!mail.ok) t.emailErr = mail.err;
     await db.ref('repairs').push(t);
@@ -187,16 +199,17 @@ function makeRepairApi(db, opts) {
     const today = thDateISO();
     const snap = await db.ref('repairs').orderByChild('dateIssue').equalTo(today).once('value');
     const list = Object.values(snap.val() || {}).sort((a, b) => a.ts - b.ts);
-    if (!list.length) return `วันนี้ (${thDateDisp(today)}) ยังไม่มีใบแจ้งซ่อม`;
-    const L = [`🔧 ใบแจ้งซ่อมวันนี้ ${thDateDisp(today)} — ${list.length} ใบ`];
+    if (!list.length) return `${thDateFull(today)}\nยังไม่มีใบแจ้งซ่อมวันนี้`;
+    const L = [thDateFull(today)];
     list.forEach((t, i) => {
       const ps = (t.items || []).map(x => `${x.param} ${x.problem}`).join(', ');
-      L.push(`${i + 1}. ${t.no} ${t.station} — ${ps} (${t.timeIssue})`);
+      L.push(`${i + 1}. ${t.station} ${ps} (${t.timeIssue} น.)`);
     });
+    L.push(`รวม ${list.length} ใบ`);
     return L.join('\n');
   }
 
-  return { createTicket, todaySummaryText, parseRepairText, matchStation };
+  return { createTicket, todaySummaryText, parseRepairText, matchStation, thDateFull };
 }
 
 module.exports = { makeRepairApi, parseRepairText, matchStation };

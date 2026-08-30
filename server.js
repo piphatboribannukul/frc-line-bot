@@ -722,6 +722,7 @@ async function handleTextMessage(replyToken, text, userId) {
   const msg = text.trim();
 
   // ── แจ้งซ่อม: "แจ้งซ่อม" เปล่า = สรุปวันนี้ | "แจ้งซ่อม <รายการ>" = ออกใบอัตโนมัติ
+  // ── แจ้งซ่อม: "แจ้งซ่อม" เปล่า = สรุปวันนี้ | "แจ้งซ่อม <รายการ>" = ออกใบ (รอเมลเสร็จแล้วค่อยตอบ)
   if (/^แจ้งซ่อม/.test(msg) && repairApi) {
     const body = msg.replace(/^แจ้งซ่อม/, '').trim();
     if (!body) {
@@ -729,20 +730,33 @@ async function handleTextMessage(replyToken, text, userId) {
       return lineReply(replyToken, [{ type: 'text', text: t }]);
     }
     const entries = repairApi.parseRepairText(body);
-    const out = [];
+    let prof = '-';
+    try { const p = await getLineProfile(userId); prof = p?.displayName || '-'; } catch (_) {}
+    const okLines = [], issues = [];
+    let mailedAll = true, anyMail = false, anyInHouse = false;
     for (const e of entries) {
-      if (!e.hits.length) { out.push(`❓ ไม่พบสถานี: "${e.raw.slice(0, 40)}" — พิมพ์ชื่อสถานีให้ชัดขึ้น`); continue; }
-      if (e.hits.length > 1) { out.push(`❓ "${e.raw.slice(0, 30)}" กำกวม: ${e.hits.slice(0, 3).map(h => h.name).join(' / ')}`); continue; }
-      if (!e.param || !e.problem) { out.push(`❓ ${e.hits[0].name}: ระบุพารามิเตอร์+อาการ เช่น "คลอรีนต่ำ" "ขุ่นสูง" "พีเอช error"`); continue; }
-      let prof = '-';
-      try { const p = await getLineProfile(userId); prof = p?.displayName || '-'; } catch (_) {}
+      if (!e.hits.length) { issues.push(`❓ ไม่พบสถานี: "${e.raw.slice(0, 40)}"`); continue; }
+      if (e.hits.length > 1) { issues.push(`❓ "${e.raw.slice(0, 30)}" กำกวม: ${e.hits.slice(0, 3).map(h => h.name).join(' / ')}`); continue; }
+      if (!e.param || !e.problem) { issues.push(`❓ ${e.hits[0].name}: ระบุพารามิเตอร์+อาการ เช่น "คลอรีนต่ำ"`); continue; }
       const r = await repairApi.createTicket({ station: e.hits[0].name,
-        items: [{ param: e.param, problem: e.problem }], reporter: prof, via: 'line' }, { deferMail: true });
-      if (r.created) { out.push(`✅ ${r.no} ${e.hits[0].name} — ${e.param} ${e.problem} · 📧 กำลังส่งเมล`);
-        if (r.mailPromise) r.mailPromise.catch(() => {}); }
-      else out.push(`ℹ️ ${r.msg}`);
+        items: [{ param: e.param, problem: e.problem }], reporter: prof, via: 'line' });
+      if (r.created) {
+        okLines.push(`${e.hits[0].name} ${e.param} ${e.problem} (${r.no})`);
+        if (r.emailSent === true) anyMail = true;
+        else if (r.ticket && r.ticket.company && r.ticket.company.includes('กองบูรณาการ')) anyInHouse = true;
+        else { mailedAll = false; issues.push(`⚠️ ${r.no} เมลไม่ออก (${r.emailErr || ''})`); }
+      } else issues.push(`ℹ️ ${r.msg}`);
     }
-    return lineReply(replyToken, [{ type: 'text', text: out.join('\n') }]);
+    const L = [];
+    if (okLines.length) {
+      L.push(repairApi.thDateFull(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })));
+      okLines.forEach((t, i) => L.push(`${i + 1}. ${t}`));
+      if (anyMail && mailedAll) L.push('', 'ส่งการแจ้งซ่อมสำเร็จ ✅ ตรวจเช็คอีเมล');
+      else if (anyMail) L.push('', 'บันทึกแล้ว — บางใบเมลไม่ออก (ดูด้านล่าง)');
+      if (anyInHouse) L.push('(งานสถานีสูบจ่ายน้ำ — กบน. ดำเนินการเอง ไม่ส่งเมลผู้รับจ้าง)');
+    }
+    L.push(...issues);
+    return lineReply(replyToken, [{ type: 'text', text: L.join('\n') || 'ไม่มีรายการ' }]);
   }
 
   // ── วาระเปลี่ยนเซ็นเซอร์/อุปกรณ์ (ถามสถานะได้ทุกเมื่อ ไม่ต้องรอ cron วันที่ 1)
