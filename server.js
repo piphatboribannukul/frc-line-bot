@@ -737,8 +737,9 @@ async function handleTextMessage(replyToken, text, userId) {
       let prof = '-';
       try { const p = await getLineProfile(userId); prof = p?.displayName || '-'; } catch (_) {}
       const r = await repairApi.createTicket({ station: e.hits[0].name,
-        items: [{ param: e.param, problem: e.problem }], reporter: prof, via: 'line' });
-      if (r.created) out.push(`✅ ${r.no} ${e.hits[0].name} — ${e.param} ${e.problem}` + (r.emailSent ? ' · ส่งเมลแล้ว' : ` · ⚠️ เมลไม่ออก (${r.emailErr || ''})`));
+        items: [{ param: e.param, problem: e.problem }], reporter: prof, via: 'line' }, { deferMail: true });
+      if (r.created) { out.push(`✅ ${r.no} ${e.hits[0].name} — ${e.param} ${e.problem} · 📧 กำลังส่งเมล`);
+        if (r.mailPromise) r.mailPromise.catch(() => {}); }
       else out.push(`ℹ️ ${r.msg}`);
     }
     return lineReply(replyToken, [{ type: 'text', text: out.join('\n') }]);
