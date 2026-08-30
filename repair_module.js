@@ -126,8 +126,19 @@ function makeRepairApi(db, opts) {
   function emailHtml(t) {
     const items = t.items.map(i => `<li>${i.param} — ${i.problem}${i.note ? ' ('+i.note+')' : ''}</li>`).join('');
     return `<div style="font-family:'Segoe UI',Tahoma,sans-serif;max-width:640px;border:1px solid #ccc;border-radius:8px;padding:20px;">
-      <h2 style="text-align:center;margin:0 0 4px;">ใบแจ้งซ่อม</h2>
-      <p style="text-align:right;margin:0;"><b>เลขที่ ${t.no}</b></p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:6px;"><tr>
+        <td style="width:70px;vertical-align:middle;">
+          <img src="https://piphatboribannukul.github.io/FRCfirebase/mwa_logo.png" width="60" height="60" alt="กปน." style="display:block;">
+        </td>
+        <td style="vertical-align:middle;padding-left:10px;">
+          <div style="font-size:15px;font-weight:700;">การประปานครหลวง</div>
+          <div style="font-size:12.5px;color:#555;">${REPAIR_FROM_ORG} · ฝ่ายคุณภาพน้ำ</div>
+        </td>
+        <td style="vertical-align:middle;text-align:right;">
+          <div style="font-size:17px;font-weight:800;">ใบแจ้งซ่อม</div>
+          <div style="font-size:13px;"><b>เลขที่ ${t.no}</b></div>
+        </td>
+      </tr></table>
       <hr>
       <p><b>ส่งถึง:</b> ${REPAIR_COMPANY}<br>
          <b>จากหน่วยงาน:</b> ${REPAIR_FROM_ORG}</p>
