@@ -30,6 +30,7 @@ const crypto  = require('crypto');
 const admin   = require('firebase-admin');
 const { spawn } = require('child_process');
 const { checkEquipmentDue } = require('./linebot_equipment_alert');
+const { makeRepairApi } = require('./repair_module');
 
 const app = express();
 
@@ -38,6 +39,29 @@ app.use('/webhook', express.json({
   verify: (req, _res, buf) => { req.rawBody = buf; }
 }));
 app.use(express.json());
+
+// ── ระบบแจ้งซ่อม: endpoint รับจากหน้าเว็บ repair.html (GitHub Pages) ──
+let repairApi = null;   // สร้างหลัง Firebase init (ดูด้านล่างประกาศ db แล้วค่อย attach)
+app.use('/repair', (req, res, next) => {          // CORS สำหรับ GitHub Pages
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+app.post('/repair', async (req, res) => {
+  try {
+    if (!repairApi) return res.status(503).json({ error: 'ระบบยังไม่พร้อม' });
+    const { station, items, foundDate, foundTime, reporter } = req.body || {};
+    if (!station || !Array.isArray(items) || !items.length)
+      return res.status(400).json({ error: 'ข้อมูลไม่ครบ (station, items)' });
+    const r = await repairApi.createTicket({ station, items, foundDate, foundTime, reporter, via: 'web' });
+    res.json(r);
+  } catch (e) {
+    console.error('[Repair] endpoint error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🔒 SECURITY: ทุก credential อ่านจาก Environment Variables เท่านั้น
@@ -124,6 +148,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 }
 
 const db = admin.database();
+repairApi = makeRepairApi(db);
 
 // ⚠️ ตรวจสอบ LINE credentials ตอน start
 if (!LINE_TOKEN) {
@@ -297,6 +322,11 @@ async function linePush(to, messages) {
   }
 }
 
+async function getLineProfile(userId) {
+  const r = await axios.get(`https://api.line.me/v2/bot/profile/${userId}`, {
+    headers: { Authorization: `Bearer ${LINE_TOKEN}` } });
+  return r.data;
+}
 async function lineReply(replyToken, messages) {
   try {
     await axios.post(`${LINE_API}/reply`, { replyToken, messages }, {
@@ -690,6 +720,29 @@ function buildDailyReportFlex({ total, good, mid, low, avgFrc, minS, maxS, lowSt
 
 async function handleTextMessage(replyToken, text, userId) {
   const msg = text.trim();
+
+  // ── แจ้งซ่อม: "แจ้งซ่อม" เปล่า = สรุปวันนี้ | "แจ้งซ่อม <รายการ>" = ออกใบอัตโนมัติ
+  if (/^แจ้งซ่อม/.test(msg) && repairApi) {
+    const body = msg.replace(/^แจ้งซ่อม/, '').trim();
+    if (!body) {
+      const t = await repairApi.todaySummaryText();
+      return lineReply(replyToken, [{ type: 'text', text: t }]);
+    }
+    const entries = repairApi.parseRepairText(body);
+    const out = [];
+    for (const e of entries) {
+      if (!e.hits.length) { out.push(`❓ ไม่พบสถานี: "${e.raw.slice(0, 40)}" — พิมพ์ชื่อสถานีให้ชัดขึ้น`); continue; }
+      if (e.hits.length > 1) { out.push(`❓ "${e.raw.slice(0, 30)}" กำกวม: ${e.hits.slice(0, 3).map(h => h.name).join(' / ')}`); continue; }
+      if (!e.param || !e.problem) { out.push(`❓ ${e.hits[0].name}: ระบุพารามิเตอร์+อาการ เช่น "คลอรีนต่ำ" "ขุ่นสูง" "พีเอช error"`); continue; }
+      let prof = '-';
+      try { const p = await getLineProfile(userId); prof = p?.displayName || '-'; } catch (_) {}
+      const r = await repairApi.createTicket({ station: e.hits[0].name,
+        items: [{ param: e.param, problem: e.problem }], reporter: prof, via: 'line' });
+      if (r.created) out.push(`✅ ${r.no} ${e.hits[0].name} — ${e.param} ${e.problem}` + (r.emailSent ? ' · ส่งเมลแล้ว' : ` · ⚠️ เมลไม่ออก (${r.emailErr || ''})`));
+      else out.push(`ℹ️ ${r.msg}`);
+    }
+    return lineReply(replyToken, [{ type: 'text', text: out.join('\n') }]);
+  }
 
   // ── วาระเปลี่ยนเซ็นเซอร์/อุปกรณ์ (ถามสถานะได้ทุกเมื่อ ไม่ต้องรอ cron วันที่ 1)
   if (/^เซ็นเซอร์$|วาระเปลี่ยน|เปลี่ยนเซ็นเซอร์/i.test(msg)) {

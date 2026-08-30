@@ -1,7 +1,7 @@
 {
   "name": "frc-chlorine-line-bot",
   "version": "1.0.0",
-  "description": "LINE Messaging API Bot สำหรับติดตามค่าคลอรีน (FRC) แบบ Real-Time",
+  "description": "LINE Messaging API Bot \u0e2a\u0e33\u0e2b\u0e23\u0e31\u0e1a\u0e15\u0e34\u0e14\u0e15\u0e32\u0e21\u0e04\u0e48\u0e32\u0e04\u0e25\u0e2d\u0e23\u0e35\u0e19 (FRC) \u0e41\u0e1a\u0e1a Real-Time",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -11,7 +11,8 @@
     "express": "^4.18.2",
     "axios": "^1.6.0",
     "node-cron": "^3.0.3",
-    "firebase-admin": "^12.0.0"
+    "firebase-admin": "^12.0.0",
+    "nodemailer": "^6.9.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.0"
