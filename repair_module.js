@@ -155,9 +155,10 @@ function makeRepairApi(db, opts) {
     if (!process.env.MAIL_WEBHOOK) return { ok: false, err: 'ยังไม่ได้ตั้ง MAIL_WEBHOOK' };
     const inHouse = t.company === IN_HOUSE_ORG;
     // แถวลง Google Sheet (แท็บ Data) — 1 แถวต่อ 1 พารามิเตอร์ ตามโครงชีตเดิม
-    const rows = t.items.map(it => ['', t.num, '', t.no, thBE(t.dateIssue), t.timeIssue,
-      thBE(t.foundDate), t.foundTime, t.station, it.param, it.problem + (it.note ? ' (' + it.note + ')' : ''),
-      t.reporter, t.company, '', '', '', '']);
+    const dotTime = s => (s || '').replace(':', '.');   // ชีตเดิมใช้รูปแบบ 15.00 / 9.28
+    const rows = t.items.map(it => ['', null, '', t.no, thBE(t.dateIssue), dotTime(t.timeIssue),
+      thBE(t.foundDate), dotTime(t.foundTime), t.station, it.param, it.problem + (it.note ? ' (' + it.note + ')' : ''),
+      t.reporter, t.company]);   // คอลัมน์ B (ลำดับ record) ให้ Apps Script รันต่อจากแถวสุดท้ายเอง
     try {
       const r = await fetch(process.env.MAIL_WEBHOOK, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
