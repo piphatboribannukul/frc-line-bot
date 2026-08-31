@@ -737,11 +737,20 @@ async function handleTextMessage(replyToken, text, userId) {
     for (const e of entries) {
       if (!e.hits.length) { issues.push(`❓ ไม่พบสถานี: "${e.raw.slice(0, 40)}"`); continue; }
       if (e.hits.length > 1) { issues.push(`❓ "${e.raw.slice(0, 30)}" กำกวม: ${e.hits.slice(0, 3).map(h => h.name).join(' / ')}`); continue; }
-      if (!e.param || !e.problem) { issues.push(`❓ ${e.hits[0].name}: ระบุพารามิเตอร์+อาการ เช่น "คลอรีนต่ำ"`); continue; }
+      // ยืดหยุ่นตามภาษาหน้างาน: มีสถานี + อย่างน้อยอาการหรือพารามิเตอร์ = ออกใบได้ ส่วนที่ขาดลง "ไม่ระบุ" + แนบข้อความต้นฉบับ
+      if (!e.param && !e.problem) { issues.push(`❓ ${e.hits[0].name}: ระบุอาการด้วย เช่น "คลอรีนต่ำ" "ขุ่นสูง" "จอ error"`); continue; }
+      // ไม่ระบุพารามิเตอร์ + อาการเป็น ERROR/ดับ/ค่าหาย = ทั้งสถานีหลุด (ระบบสื่อสาร)
+      // → ลงหมวด "หน้าจอ TWQ" ตามธรรมเนียมที่ทีมบันทึกในชีตมาตลอด
+      const wholeStation = !e.param && e.problem && /ERROR|ดับ|ค่าหาย/.test(e.problem);
+      const param = e.param || (wholeStation ? 'หน้าจอ TWQ' : 'ไม่ระบุพารามิเตอร์');
+      const problem = e.problem || 'ไม่ระบุอาการ';
+      const item = { param, problem };
+      if (wholeStation) item.note = 'ทั้งสถานี (ระบบสื่อสาร) — ข้อความแจ้ง: ' + e.raw.slice(0, 60);
+      else if (!e.param || !e.problem) item.note = 'ข้อความแจ้ง: ' + e.raw.slice(0, 80);
       const r = await repairApi.createTicket({ station: e.hits[0].name,
-        items: [{ param: e.param, problem: e.problem }], reporter: prof, via: 'line' });
+        items: [item], reporter: prof, via: 'line' });
       if (r.created) {
-        okLines.push(`${e.hits[0].name} ${e.param} ${e.problem} (${r.no})`);
+        okLines.push(`${e.hits[0].name} ${param} ${problem} (${r.no})`);
         if (r.emailSent === true) anyMail = true;
         else if (r.ticket && r.ticket.company && r.ticket.company.includes('กองบูรณาการ')) anyInHouse = true;
         else { mailedAll = false; issues.push(`⚠️ ${r.no} เมลไม่ออก (${r.emailErr || ''})`); }
