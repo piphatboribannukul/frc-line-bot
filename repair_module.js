@@ -208,6 +208,29 @@ function makeRepairApi(db, opts) {
     return { created: true, no, emailSent: mail.ok, emailErr: mail.err, ticket: t };
   }
 
+  /** ปิดงาน: บันทึกผู้ตรวจสอบ+วันที่ใน Firebase และเขียน "วันที่แล้วเสร็จ" (คอลัมน์ O) ลงชีตเดิม */
+  async function closeTicket({ key, no, by }) {
+    if (!key || !by) throw new Error('ข้อมูลไม่ครบ (key, by)');
+    const snap = await db.ref('repairs/' + key).once('value');
+    const t = snap.val();
+    if (!t) throw new Error('ไม่พบใบแจ้งซ่อม');
+    const closedDate = thDateISO();
+    await db.ref('repairs/' + key).update({ status: 'closed', closedBy: by, closedDate, closedTs: Date.now() });
+    let sheet = { ok: false };
+    if (process.env.MAIL_WEBHOOK) {
+      try {
+        const r = await fetch(process.env.MAIL_WEBHOOK, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: process.env.MAIL_SECRET || '',
+            close: { no: t.no, date: thBE(closedDate), by } }),
+          redirect: 'follow',
+        });
+        const body = await r.text(); try { sheet = JSON.parse(body); } catch (_) {}
+      } catch (e) { sheet = { ok: false, error: e.message }; }
+    }
+    return { ok: true, no: t.no, closedBy: by, closedDate, sheet: sheet.ok ? 'updated' : (sheet.error || 'skipped') };
+  }
+
   async function todaySummaryText() {
     const today = thDateISO();
     const snap = await db.ref('repairs').orderByChild('dateIssue').equalTo(today).once('value');
@@ -222,7 +245,7 @@ function makeRepairApi(db, opts) {
     return L.join('\n');
   }
 
-  return { createTicket, todaySummaryText, parseRepairText, matchStation, thDateFull };
+  return { createTicket, closeTicket, todaySummaryText, parseRepairText, matchStation, thDateFull };
 }
 
 module.exports = { makeRepairApi, parseRepairText, matchStation };

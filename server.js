@@ -49,6 +49,17 @@ app.use('/repair', (req, res, next) => {          // CORS สำหรับ Git
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
+app.post('/repair/close', async (req, res) => {
+  try {
+    if (!repairApi) return res.status(503).json({ error: 'ระบบยังไม่พร้อม' });
+    const { key, by } = req.body || {};
+    if (!key || !by) return res.status(400).json({ error: 'ข้อมูลไม่ครบ (key, by)' });
+    res.json(await repairApi.closeTicket({ key, by }));
+  } catch (e) {
+    console.error('[Repair] close error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 app.post('/repair', async (req, res) => {
   try {
     if (!repairApi) return res.status(503).json({ error: 'ระบบยังไม่พร้อม' });
