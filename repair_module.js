@@ -71,26 +71,52 @@ function thDateFull(iso) {   // "วันอาทิตย์ที่ 30 ส�
 }
 
 /* จับชื่อสถานีแบบยืดหยุ่น: ตัดคำนำหน้า, คะแนนจากคำที่ทับกัน */
-function matchStation(text) {
-  const norm = s => s.replace(/สถานีสูบจ่ายน้ำ|สำนักงานประปาสาขา|โรงพยาบาล|บริษัท|จำกัด|\(มหาชน\)|มหาวิทยาลัย|รพ\.|สจ\.|สปส\.|สนง\.|ม\./g, '')
-                     .replace(/[\s().]/g, '').toUpperCase();
-  const t = norm(text);
-  if (!t) return { hits: [] };
-  // token สำหรับรหัสย่อละติน/สั้น (LP, MB, สสส) — ต้องพิมพ์เป็นคำโดดเท่านั้น กันจับมั่วกลางคำ
-  const tokens = new Set(text.trim().split(/\s+/).map(x => x.replace(/[().]/g, '').toUpperCase()));
-  const hits = REPAIR_STATIONS.filter(s => {
-    const n = norm(s.name);
-    if (n.includes(t) || t.includes(n)) return true;
-    for (const a of (s.al || [])) {
-      const na = norm(a);
-      if (!na) continue;
-      if (/^[A-Z0-9]{1,4}$/.test(na) || na.length <= 3) {
-        if (tokens.has(na)) return true;          // รหัสสั้น: จับเฉพาะคำโดด
-      } else if (t.includes(na)) return true;      // ฉายาไทยยาว: จับแบบ substring
+/* ความยาว substring ร่วมที่ยาวสุด (ใช้วัดว่าที่พิมพ์ทับกับชื่อสถานีมากแค่ไหน) */
+function lcsLen(a, b) {
+  let best = 0; const prev = new Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = b.length; j >= 1; j--) {
+      prev[j] = a[i - 1] === b[j - 1] ? prev[j - 1] + 1 : 0;
+      if (prev[j] > best) best = prev[j];
     }
-    return false;
-  });
-  return { hits };
+  }
+  return best;
+}
+function matchStation(text) {
+  const norm = s => s.replace(/สถานีสูบจ่ายน้ำ|สำนักงานประปาสาขา|สำนักงานประปา|ประปาสาขา|สาขา|โรงพยาบาล|บริษัท|จำกัด|\(มหาชน\)|มหาวิทยาลัย|รพ\.|สจ\.|สปส\.|สนง\.|ม\./g, '')
+                     .replace(/[\s().]/g, '').toUpperCase();
+  // ตัดคำพารามิเตอร์/อาการออกก่อน ให้เหลือเฉพาะ "วลีชื่อสถานี" ที่คนพิมพ์
+  const isSymptom = w => PARAM_KEYS.some(([, re]) => re.test(w)) || PROBLEM_KEYS.some(([, re]) => re.test(w));
+  const rawTokens = text.trim().split(/\s+/).filter(Boolean);
+  const stTokens = rawTokens.filter(w => !isSymptom(w));
+  const ts = norm((stTokens.length ? stTokens : rawTokens).join(' '));
+  if (!ts) return { hits: [] };
+  const tokens = new Set(rawTokens.map(x => x.replace(/[().]/g, '').toUpperCase()));
+  // สัญญาณประเภทหน่วยงานที่คนพิมพ์ (สาขา/สจ./รพ./นิคม) → บวกแต้มให้สถานีประเภทนั้น
+  const CUES = [[/สาขา|สนง|ประปา|สปส/, /สำนักงานประปาสาขา/], [/สจ|สูบจ่าย/, /สถานีสูบจ่ายน้ำ/],
+                [/รพ|โรงพยาบาล/, /โรงพยาบาล/], [/นิคม/, /นิคม/]];
+  const cueRe = CUES.filter(([u]) => u.test(text)).map(([, n]) => n);
+  const scored = [];
+  for (const s of REPAIR_STATIONS) {
+    let best = 0;
+    const cueBonus = cueRe.some(re => re.test(s.name)) ? 5 : 0;
+    for (const k of [norm(s.name), ...(s.al || []).map(norm)].filter(Boolean)) {
+      if (/^[A-Z0-9]{1,4}$/.test(k) || k.length <= 3) {          // รหัสสั้น: ต้องพิมพ์เป็นคำโดด
+        if (tokens.has(k)) best = Math.max(best, 200);
+        continue;
+      }
+      const l = lcsLen(ts, k);
+      if (l < 3) continue;
+      let sc = l + cueBonus;
+      if (k === ts) sc += 50;                                     // ตรงทั้งคำ
+      if (ts.length >= 4 && k.includes(ts.slice(0, 4))) sc += 3;  // คำนำหน้าที่คนตั้งใจพิมพ์ (นิคม/สาขา/รพ.) ตรงกับชื่อ
+      best = Math.max(best, sc);
+    }
+    if (best) scored.push({ s, best });
+  }
+  if (!scored.length) return { hits: [] };
+  const top = Math.max(...scored.map(x => x.best));
+  return { hits: scored.filter(x => x.best === top).map(x => x.s) };   // เสมอกันจริง = กำกวม ถามกลับ
 }
 function parseRepairText(body) {
   // แยกรายการ "1. ... 2. ..." หรือบรรทัด หรือข้อความเดียว
