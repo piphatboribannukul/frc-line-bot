@@ -731,7 +731,7 @@ function buildDailyReportFlex({ total, good, mid, low, avgFrc, minS, maxS, lowSt
 
 // คำสั่งที่บอทจะตอบเมื่ออยู่ใน "กลุ่ม/ห้อง" — ข้อความอื่นของคนในกลุ่มปล่อยผ่านเงียบ ๆ
 // (แชท 1:1 ตอบทุกอย่างเหมือนเดิม รวม fallback เมนู)
-const GROUP_COMMANDS = /^(แจ้งซ่อม|เซ็นเซอร์|วาระเปลี่ยน|เปลี่ยนเซ็นเซอร์|เมนู|help|สถานะ|คลอรีน|frc)\b/i;
+const GROUP_COMMANDS = /^(แจ้งซ่อม|เซ็นเซอร์|วาระเปลี่ยน|เปลี่ยนเซ็นเซอร์|เมนู|help|สถานะ|คลอรีน|frc)/i;   // ห้ามใช้ \b กับภาษาไทย
 
 async function handleTextMessage(replyToken, text, userId, sourceType = 'user') {
   const msg = text.trim();
