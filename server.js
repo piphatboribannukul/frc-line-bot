@@ -729,8 +729,13 @@ function buildDailyReportFlex({ total, good, mid, low, avgFrc, minS, maxS, lowSt
 // Feature 3: 💧 Reply — ค่าคลอรีนปัจจุบัน (ออกแบบใหม่ + Quick Reply)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-async function handleTextMessage(replyToken, text, userId) {
+// คำสั่งที่บอทจะตอบเมื่ออยู่ใน "กลุ่ม/ห้อง" — ข้อความอื่นของคนในกลุ่มปล่อยผ่านเงียบ ๆ
+// (แชท 1:1 ตอบทุกอย่างเหมือนเดิม รวม fallback เมนู)
+const GROUP_COMMANDS = /^(แจ้งซ่อม|เซ็นเซอร์|วาระเปลี่ยน|เปลี่ยนเซ็นเซอร์|เมนู|help|สถานะ|คลอรีน|frc)\b/i;
+
+async function handleTextMessage(replyToken, text, userId, sourceType = 'user') {
   const msg = text.trim();
+  if (sourceType !== 'user' && !GROUP_COMMANDS.test(msg)) return;   // ในกลุ่ม: ไม่ใช่คำสั่ง = เงียบ
 
   // ── แจ้งซ่อม: "แจ้งซ่อม" เปล่า = สรุปวันนี้ | "แจ้งซ่อม <รายการ>" = ออกใบอัตโนมัติ
   // ── แจ้งซ่อม: "แจ้งซ่อม" เปล่า = สรุปวันนี้ | "แจ้งซ่อม <รายการ>" = ออกใบ (รอเมลเสร็จแล้วค่อยตอบ)
@@ -2290,7 +2295,7 @@ app.post('/webhook', async (req, res) => {
       }
 
       if (event.type === 'message' && event.message.type === 'text') {
-        await handleTextMessage(event.replyToken, event.message.text, source?.userId);
+        await handleTextMessage(event.replyToken, event.message.text, source?.userId, source?.type);
       }
 
       if (event.type === 'message' && event.message.type === 'location') {
