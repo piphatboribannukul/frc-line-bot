@@ -44,6 +44,9 @@ const PARAM_KEYS = [
   ['อัตราการไหลน้ำเข้าตู้', /อัตราการไหล|โฟลว์|flow/i],
 ];
 const PROBLEM_KEYS = [
+  // [v2] แกว่งสูง/แกว่งต่ำ ต้องอยู่ก่อน สูง/ต่ำ/แกว่ง เดี่ยวๆ — ไม่งั้น "คลอรีนแกว่งสูง" จะถูกจับเป็น "สูงผิดปกติ"
+  ['แกว่งสูงผิดปกติ', /(แกว่ง|สวิง).{0,3}สูง|สูง.{0,3}(แกว่ง|สวิง)/],
+  ['แกว่งต่ำผิดปกติ', /(แกว่ง|สวิง).{0,3}ต่ำ|ต่ำ.{0,3}(แกว่ง|สวิง)/],
   ['สูงผิดปกติ', /สูง/], ['ต่ำผิดปกติ', /ต่ำ/],
   ['แสดงค่า ERROR', /error|เออเร่อ|เอเร่อ|สื่อสาร|ออฟไลน์|offline|ไม่ส่งค่า|ขาดการติดต่อ|หลุด/i],
   ['ค่าค้าง', /ค้าง/], ['ค่าหาย', /หาย/], ['ค่าแกว่ง ผิดปกติ', /แกว่ง|สวิง/],
@@ -196,7 +199,7 @@ function makeRepairApi(db, opts) {
           mail: inHouse ? null : {
             to: process.env.REPAIR_TO || 'boribannukul@gmail.com',
             cc: process.env.REPAIR_CC || '',
-            subject: `ใบแจ้งซ่อม ${t.no} — ${t.station}`,
+            subject: `ใบแจ้งซ่อม ${t.no}${t.addendum ? ' (แจ้งเพิ่มเติม)' : ''} — ${t.station}`,
             html: emailHtml(t),
           },
         }),
@@ -214,14 +217,23 @@ function makeRepairApi(db, opts) {
     const exist = await findTodayTicket(station);
     if (exist) {
       const cur = exist.ticket.items || [];
-      const added = [];
+      // [v2] เช็คซ้ำระดับ "สถานี+พารามิเตอร์" (เดิมเช็ค param+problem แล้วรวมเงียบๆ ไม่ส่งเมล/ชีต)
+      //  - พารามิเตอร์ที่มีในใบวันนี้แล้ว → บล็อค (กันสแปมเหมือนเดิม)
+      //  - พารามิเตอร์ใหม่ → รวมเข้าใบเดิม + ส่งเมล/ลงชีต "เฉพาะรายการใหม่" ใต้ใบเลขเดิม
+      const dupParams = [], fresh = [];
       for (const it of items)
-        if (!cur.some(c => c.param === it.param && c.problem === it.problem)) { cur.push(it); added.push(it); }
-      if (!added.length)
-        return { dup: true, no: exist.ticket.no, msg: `วันนี้มีใบแจ้งซ่อม ${exist.ticket.no} ของ ${station} รายการเดียวกันอยู่แล้ว — ไม่ส่งซ้ำ` };
-      await db.ref(`repairs/${exist.key}/items`).set(cur);
-      return { merged: true, no: exist.ticket.no, added,
-        msg: `รวมเข้าใบเดิม ${exist.ticket.no} (${station}) เพิ่ม ${added.length} รายการ — ไม่ส่งเมลซ้ำ` };
+        (cur.some(c => c.param === it.param) ? dupParams : fresh).push(it);
+      if (!fresh.length)
+        return { dup: true, no: exist.ticket.no,
+          msg: `วันนี้ใบ ${exist.ticket.no} ของ ${station} แจ้ง ${dupParams.map(x => x.param).join(', ')} ไว้แล้ว — ไม่ส่งซ้ำ` };
+      const tAdd = { ...exist.ticket, items: fresh, addendum: true,
+        foundDate: foundDate || thDateISO(), foundTime: foundTime || thTimeHM(),
+        reporter: reporter || exist.ticket.reporter || '-' };
+      const mail = await sendRepairMail(tAdd);
+      await db.ref(`repairs/${exist.key}/items`).set([...cur, ...fresh]);
+      return { created: true, merged: true, no: exist.ticket.no,
+        emailSent: mail.ok, emailErr: mail.err, ticket: exist.ticket,
+        skipped: dupParams.map(x => x.param) };
     }
     const { num, no } = await nextRepairNo();
     const t = { no, num, station, items,
