@@ -754,7 +754,7 @@ async function handleTextMessage(replyToken, text, userId, sourceType = 'user') 
       if (!e.hits.length) { issues.push(`❓ ไม่พบสถานี: "${e.raw.slice(0, 40)}"`); continue; }
       if (e.hits.length > 1) { issues.push(`❓ "${e.raw.slice(0, 30)}" กำกวม: ${e.hits.slice(0, 3).map(h => h.name).join(' / ')}`); continue; }
       // ยืดหยุ่นตามภาษาหน้างาน: มีสถานี + อย่างน้อยอาการหรือพารามิเตอร์ = ออกใบได้ ส่วนที่ขาดลง "ไม่ระบุ" + แนบข้อความต้นฉบับ
-      if (!e.param && !e.problem) { issues.push(`❓ ${e.hits[0].name}: ระบุอาการด้วย เช่น "คลอรีนต่ำ" "ขุ่นสูง" "จอ error"`); continue; }
+      if (!e.param && !e.problem) { issues.push(`❓ ${e.hits[0].name}: ระบุอาการด้วย เช่น "คลอรีนต่ำ" "คลอรีนแกว่งสูง" "ขุ่นสูง" "จอ error"`); continue; }
       // ไม่ระบุพารามิเตอร์ + อาการเป็น ERROR/ดับ/ค่าหาย = ทั้งสถานีหลุด (ระบบสื่อสาร)
       // → ลงหมวด "หน้าจอ TWQ" ตามธรรมเนียมที่ทีมบันทึกในชีตมาตลอด
       const wholeStation = !e.param && e.problem && /ERROR|ดับ|ค่าหาย/.test(e.problem);
@@ -767,6 +767,7 @@ async function handleTextMessage(replyToken, text, userId, sourceType = 'user') 
         items: [item], reporter: prof, via: 'line' });
       if (r.created) {
         okLines.push(`${e.hits[0].name} ${param} ${problem} (${r.no})`);
+        if (r.skipped && r.skipped.length) issues.push(`ℹ️ ${e.hits[0].name}: ${r.skipped.join(', ')} มีในใบวันนี้แล้ว — ไม่ส่งซ้ำ`);
         if (r.emailSent === true) anyMail = true;
         else if (r.ticket && r.ticket.company && r.ticket.company.includes('กองบูรณาการ')) anyInHouse = true;
         else { mailedAll = false; issues.push(`⚠️ ${r.no} เมลไม่ออก (${r.emailErr || ''})`); }
