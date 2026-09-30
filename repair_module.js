@@ -123,7 +123,9 @@ function matchStation(text) {
 }
 function parseRepairText(body) {
   // แยกรายการ "1. ... 2. ..." หรือบรรทัด หรือข้อความเดียว
-  const chunks = body.split(/\s*\d+[.)]\s*/).map(s => s.trim()).filter(Boolean);
+  // [v2.1] ลิสต์มาร์คเกอร์ต้อง: อยู่ต้นข้อความ/หลังช่องว่าง, เลข 1–2 หลัก, และหลังจุดต้องไม่ใช่ตัวเลข
+  // — กันเวลา "18.09 น." / ทศนิยม "3.5" ถูกหั่นเป็นรายการปลอม ("ไม่พบสถานี: 09 น.")
+  const chunks = body.split(/(?:^|\s)\d{1,2}[.)](?!\d)\s*/).map(s => s.trim()).filter(Boolean);
   const list = chunks.length ? chunks : [body.trim()];
   return list.map(chunk => {
     const { hits } = matchStation(chunk);
@@ -190,26 +192,41 @@ function makeRepairApi(db, opts) {
     const rows = t.items.map(it => ['', null, '', t.no, thBE(t.dateIssue), dotTime(t.timeIssue),
       thBE(t.foundDate), dotTime(t.foundTime), t.station, it.param, it.problem + (it.note ? ' (' + it.note + ')' : ''),
       t.reporter, t.company]);   // คอลัมน์ B (ลำดับ record) ให้ Apps Script รันต่อจากแถวสุดท้ายเอง
-    try {
-      const r = await fetch(process.env.MAIL_WEBHOOK, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          secret: process.env.MAIL_SECRET || '',
-          rows,
-          mail: inHouse ? null : {
-            to: process.env.REPAIR_TO || 'boribannukul@gmail.com',
-            cc: process.env.REPAIR_CC || '',
-            subject: `ใบแจ้งซ่อม ${t.no}${t.addendum ? ' (แจ้งเพิ่มเติม)' : ''} — ${t.station}`,
-            html: emailHtml(t),
-          },
-        }),
-        redirect: 'follow',
-      });
-      const body = await r.text();
-      let j = {}; try { j = JSON.parse(body); } catch (_) {}
-      if (j.ok) return { ok: true, inHouse };
-      return { ok: false, err: j.error || ('HTTP ' + r.status) };
-    } catch (e) { return { ok: false, err: e.message }; }
+    const payload = JSON.stringify({
+      secret: process.env.MAIL_SECRET || '',
+      reqId: t.no + '|' + (t.addendum ? 'A' : 'N') + '|' + t.items.map(i => i.param).join(','),
+      rows,
+      mail: inHouse ? null : {
+        to: process.env.REPAIR_TO || 'boribannukul@gmail.com',
+        cc: process.env.REPAIR_CC || '',
+        subject: `ใบแจ้งซ่อม ${t.no}${t.addendum ? ' (แจ้งเพิ่มเติม)' : ''} — ${t.station}`,
+        html: emailHtml(t),
+      },
+    });
+    // [v2.2] GAS ตอบกลับไม่นิ่ง: บ่อยครั้งเมลออก+ชีตลงสำเร็จ แต่ redirect คืน HTML/404/ว่าง
+    // → ตีความตามหลักฐาน แทนการยิงซ้ำ (ยิงซ้ำตอนงานสำเร็จแล้ว = เมลเบิ้ล/แถวชีตเบิ้ล)
+    //   {ok:true}            → สำเร็จชัวร์
+    //   {ok:false, error}    → GAS ประกาศเองว่าทำไม่สำเร็จ = ล้มจริง (อันนี้ค่อยแจ้งเตือน)
+    //   ตอบกลับกำกวมอื่นๆ    → งานฝั่ง GAS แทบทั้งหมดสำเร็จไปแล้ว = ถือว่าส่งแล้ว ไม่เด้งเตือน ไม่ยิงซ้ำ
+    //   fetch โยน error      → request ไม่ถึงปลายทาง = ยิงซ้ำได้ปลอดภัย (1 ครั้ง)
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const r = await fetch(process.env.MAIL_WEBHOOK, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: payload, redirect: 'follow',
+        });
+        const body = await r.text();
+        let j = null; try { j = JSON.parse(body); } catch (_) {}
+        if (j && j.ok) return { ok: true, inHouse };
+        if (j && j.ok === false) return { ok: false, err: j.error || 'GAS แจ้งไม่สำเร็จ' };
+        console.warn(`[Mail] ${t.no} ตอบกลับกำกวม (HTTP ${r.status}) — GAS redirect ไม่นิ่ง ถือว่าส่งแล้ว`);
+        return { ok: true, inHouse, unconfirmed: true };
+      } catch (e) {
+        if (attempt === 2) return { ok: false, err: 'เชื่อมต่อ GAS ไม่ได้: ' + e.message };
+        console.warn(`[Mail] ${t.no} ยิงไม่ถึง GAS (${e.message}) — ลองใหม่...`);
+        await new Promise(res => setTimeout(res, 1500));
+      }
+    }
   }
 
   /** สร้าง/รวมใบแจ้งซ่อม — items: [{param, problem, note?}] */
@@ -217,9 +234,7 @@ function makeRepairApi(db, opts) {
     const exist = await findTodayTicket(station);
     if (exist) {
       const cur = exist.ticket.items || [];
-      // [v2] เช็คซ้ำระดับ "สถานี+พารามิเตอร์" (เดิมเช็ค param+problem แล้วรวมเงียบๆ ไม่ส่งเมล/ชีต)
-      //  - พารามิเตอร์ที่มีในใบวันนี้แล้ว → บล็อค (กันสแปมเหมือนเดิม)
-      //  - พารามิเตอร์ใหม่ → รวมเข้าใบเดิม + ส่งเมล/ลงชีต "เฉพาะรายการใหม่" ใต้ใบเลขเดิม
+      // [v2] เช็คซ้ำระดับ "สถานี+พารามิเตอร์" — พารามิเตอร์ใหม่รวมใบเดิม + ส่งเมล/ชีตเฉพาะรายการใหม่
       const dupParams = [], fresh = [];
       for (const it of items)
         (cur.some(c => c.param === it.param) ? dupParams : fresh).push(it);
