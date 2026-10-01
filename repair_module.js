@@ -27,6 +27,27 @@ const STATION_ALIASES = {
 const REPAIR_COMPANY = 'บริษัท เพทโทร-อินสตรูเม้นท์ จำกัด';
 const IN_HOUSE_ORG = 'กองบูรณาการคุณภาพน้ำ (กปน.)';
 // 10 สถานีสูบจ่ายน้ำที่ กบน. ดูแลเอง — ไม่ส่งเมลผู้รับจ้าง
+// [v2.4] ตารางแปลงชื่อไลน์ → ชื่อจริง (ผู้แจ้งในใบแจ้งซ่อม/ชีต/เมล)
+// key พิมพ์แบบเรียบๆ ได้เลย — ระบบเทียบแบบตัดอีโมจิ/สัญลักษณ์/ช่องว่าง + ไม่สนตัวพิมพ์
+// เช่น key "ball" จับชื่อไลน์ "Ball⚽" / "thimi thitima" จับ "Thimi Thitima 🙏"
+// ชื่อที่ไม่อยู่ในตาราง = ใช้ชื่อไลน์เดิมตามปกติ
+const REPORTER_MAP = {
+  'm': 'พิพัฒน์',
+  'chit': 'ธนัท',
+  'thimi thitima': 'ธิติมา',
+  'weesuda': 'วีร์สุดา',
+  'ball': 'ธัรวุฒิ',
+  'Pong💗': โสภิณ
+};
+const _repNorm = s => String(s || '').normalize('NFC')
+  .replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+const _REPORTER_LOOKUP = Object.fromEntries(
+  Object.entries(REPORTER_MAP).map(([k, v]) => [_repNorm(k), v]));
+function mapReporter(r) {
+  if (!r) return r;
+  return _REPORTER_LOOKUP[_repNorm(r)] || String(r).trim();
+}
+
 const IN_HOUSE = new Set(['ลาดพร้าว','คลองเตย','สำโรง','มีนบุรี','ลาดกระบัง','บางพลี','ราษฎร์บูรณะ','เพชรเกษม','ท่าพระ','ลุมพินี']
   .map(n => 'สถานีสูบจ่ายน้ำ' + n));
 const companyOf = station => IN_HOUSE.has(station) ? IN_HOUSE_ORG : REPAIR_COMPANY;
@@ -243,16 +264,29 @@ function makeRepairApi(db, opts) {
     const rows = t.items.map(it => ['', null, '', t.no, thBE(t.dateIssue), dotTime(t.timeIssue),
       thBE(t.foundDate), dotTime(t.foundTime), t.station, it.param, it.problem + (it.note ? ' (' + it.note + ')' : ''),
       t.reporter, t.company]);   // คอลัมน์ B (ลำดับ record) ให้ Apps Script รันต่อจากแถวสุดท้ายเอง
+    const mailObj = inHouse ? null : {
+      to: process.env.REPAIR_TO || 'boribannukul@gmail.com',
+      cc: process.env.REPAIR_CC || '',
+      subject: `ใบแจ้งซ่อม ${t.no}${t.addendum ? ' (แจ้งเพิ่มเติม)' : ''} — ${t.station}`,
+      html: emailHtml(t),
+    };
+
+    // [v3] องค์กรย้าย Google → Microsoft: MAIL_PROVIDER=ms ใช้ Graph API (เมล M365 + Excel)
+    //      ไม่ตั้ง/=gas ใช้ GAS webhook เดิม — สลับด้วย env ตัวเดียว ย้อนกลับได้ทันที
+    if ((process.env.MAIL_PROVIDER || 'gas') === 'ms') {
+      try {
+        const ms = require('./ms_mail');
+        return await ms.deliver({ rows, mail: mailObj, no: t.no });
+      } catch (e) {
+        return { ok: false, err: 'MS Graph: ' + e.message };
+      }
+    }
+
     const payload = JSON.stringify({
       secret: process.env.MAIL_SECRET || '',
       reqId: t.no + '|' + (t.addendum ? 'A' : 'N') + '|' + t.items.map(i => i.param).join(','),
       rows,
-      mail: inHouse ? null : {
-        to: process.env.REPAIR_TO || 'boribannukul@gmail.com',
-        cc: process.env.REPAIR_CC || '',
-        subject: `ใบแจ้งซ่อม ${t.no}${t.addendum ? ' (แจ้งเพิ่มเติม)' : ''} — ${t.station}`,
-        html: emailHtml(t),
-      },
+      mail: mailObj,
     });
     // [v2.2] GAS ตอบกลับไม่นิ่ง: บ่อยครั้งเมลออก+ชีตลงสำเร็จ แต่ redirect คืน HTML/404/ว่าง
     // → ตีความตามหลักฐาน แทนการยิงซ้ำ (ยิงซ้ำตอนงานสำเร็จแล้ว = เมลเบิ้ล/แถวชีตเบิ้ล)
@@ -282,6 +316,7 @@ function makeRepairApi(db, opts) {
 
   /** สร้าง/รวมใบแจ้งซ่อม — items: [{param, problem, note?}] */
   async function createTicket({ station, items, foundDate, foundTime, reporter, via }) {
+    reporter = mapReporter(reporter); // [v2.4] แปลงชื่อไลน์ → ชื่อจริงในใบแจ้งซ่อม
     const exist = await findTodayTicket(station);
     if (exist) {
       const cur = exist.ticket.items || [];
