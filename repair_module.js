@@ -37,7 +37,7 @@ const REPORTER_MAP = {
   'thimi thitima': 'ธิติมา',
   'weesuda': 'วีร์สุดา',
   'ball': 'ธัรวุฒิ',
-  'Pong💗': โสภิณ
+  'pong': 'โสภิณ',
 };
 const _repNorm = s => String(s || '').normalize('NFC')
   .replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
