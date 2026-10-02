@@ -145,7 +145,8 @@ def load_buffer(hours=200):
 def build_features(hist, station, fp, now):
     FEATS = FEATS_BY_FP[str(fp)]
     col = fb_key(station)  # ชื่อคอลัมน์ใน buffer เป็นแบบ sanitized
-    s = hist[col] if col in hist.columns else pd.Series(dtype=float)
+    # สถานีที่ไม่มีข้อมูลใน buffer → Series ว่างแบบ DatetimeIndex (เดิมเป็น RangeIndex → เทียบกับ Timestamp แล้ว crash)
+    s = hist[col] if col in hist.columns else pd.Series(dtype=float, index=pd.DatetimeIndex([]))
     row = {}
     for f in FEATS:
         if f.startswith("self"):
