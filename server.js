@@ -2362,69 +2362,124 @@ app.get('/', (req, res) => {
 // Cron Jobs
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ── MK Raw Water Fetch (S14 คลองตะวันตก กม.14) ──────────────────────────────
-// Railway สามารถเรียก bigdata API ได้ (ไม่มี CORS) แล้วบันทึกลง Firebase
-// FRCContour อ่านจาก Firebase path rawmk/S14 แทน API โดยตรง
+// ═══════════════════════════════════════════════════════════════════════════════
+// 📥 COLLECTOR — ผู้บันทึกประวัติเจ้าเดียว (แทน poll.yml + การเขียนจากหน้าเว็บ)
+// กติกาเดียวทุกแหล่ง:
+//   1) เช็คแหล่งข้อมูลตามรอบ cron
+//   2) บันทึกเฉพาะเมื่อแหล่ง "มีรอบใหม่" (เวลาของแหล่งเปลี่ยน) → ไม่มีจุดซ้ำ
+//   3) เวลาของจุด = เวลาของแหล่ง (TWQMS sourceDtm / bigdata datetimes) ไม่ใช่เวลาที่ดึง
+//   4) key = ts (ms) ทุก node → prune ลบแบบเดียวกัน, เขียนซ้ำ key เดิม = ทับค่าเดิม ไม่เกิดจุดใหม่
+//   5) ไม่มีค่า = ไม่บันทึก (ไม่เขียน 0 ปลอม)
+// ทุกฟังก์ชันจับ error ภายในตัวเอง → collector มีปัญหา bot ส่วน LINE ไม่ล่มตาม
+// ═══════════════════════════════════════════════════════════════════════════════
 
-const MK_API_URL = 'https://bigdata.mwa.co.th/data-service/internal/big-data/api/v1/783f543c-666c-35b4-795b-40dd2446b291/720721b3-cdaa-199d-9286-52f97cf00dfb/data?token=y0pBvoNbZSQWULB88PXeHBn2dHEgzaFyxSeH3V7a9jgWwn9VAmuGLhqkwrHLpdRm7wNn4DJsYLUT81JpZTwFqZkawNqdq2Osi1igZmYMlD37sKnU8Sy3aLgAQjKoHcdN';
+// เวลาจากแหล่ง กปน. ไม่มี timezone (เป็นเวลาไทย) — server Railway เป็น UTC จึงต้องเติม +07:00 เอง
+function parseThaiTime(str) {
+  if (!str) return NaN;
+  const t = String(str).trim().replace(' ', 'T');
+  return /([zZ]|[+-]\d\d:?\d\d)$/.test(t) ? Date.parse(t) : Date.parse(t + '+07:00');
+}
+const _num = v => { const x = parseFloat(v); return isNaN(x) ? null : x; };
+const _okTs = ts => !isNaN(ts) && ts > Date.now() - 7 * 86400000 && ts < Date.now() + 15 * 60000;
 
-const MK_STATION_IDS = ['T5','S16','S11','S9','S12','S13','S14'];
-
-async function fetchAndSaveMkData() {
+// ── 1. TWQMS: FRC + EC ทุกสถานี → history/{สถานี}/{ts} + live ──────────────────
+const _lastTwqmsTs = {};   // สถานี → ts ล่าสุดที่บันทึกแล้ว (กันเขียนซ้ำ)
+async function collectTwqms() {
   try {
-    const resp = await axios.get(MK_API_URL, { timeout: 30000 });
-    const records = resp.data?.data || [];
-    console.log('[MK] records length:', records.length);
-    // หา stn_id ของคลองตะวันตก
-    const klongTawan = records.filter(r => r.stn_name && r.stn_name.includes('คลองตะวัน'));
-    console.log('[MK] คลองตะวันตก records:', JSON.stringify(klongTawan.slice(0,3)));
-    // หา unique stn_id/stn_name
-    const uniqueStns = {};
-    records.forEach(r => { uniqueStns[r.stn_id] = r.stn_name; });
-    console.log('[MK] unique stations:', JSON.stringify(uniqueStns));
-
-    // หาค่าล่าสุดของแต่ละสถานี
-    const latest = {};
-    records.forEach(r => {
-      const sid = r.stn_id;
-      if (!MK_STATION_IDS.includes(sid)) return;
-      if (!latest[sid] || r.datetimes > latest[sid].datetimes) {
-        latest[sid] = r;
-      }
-    });
-
-    // บันทึกลง Firebase
-    const ts = Date.now();
-    const saves = Object.entries(latest).map(([sid, r]) => {
-      const data = {
-        ec:       r.conducted || 0,
-        temp:     r.temp      || 0,
-        ph:       r.ph        || 0,
-        turbid:   r.turbid    || 0,
-        deo:      r.deo       || 0,
-        salinity: r.salinity  || 0,
-        tds:      r.tds       || 0,
-        time:     r.datetimes,
-        ts,
-      };
-      // current value
-      const p1 = db.ref(`rawmk/${sid}`).set(data);
-      // history (เก็บทุก 10 นาที)
-      const p2 = db.ref(`history/rawmk_${sid}`).push({ ec: data.ec, ts });
-      return Promise.all([p1, p2]);
-    });
-
-    await Promise.all(saves);
-    const s14ec = latest['S14']?.conducted;
-    console.log(`[MK] ✅ บันทึก ${Object.keys(latest).length} สถานี | S14 EC=${s14ec} µS/cm`);
-  } catch (e) {
-    console.error('[MK] ❌ fetch error:', e.message);
-  }
+    const res = await axios.get(MWA_API, { timeout: 20000 });
+    const raw = res.data;
+    const arr = Array.isArray(raw) ? raw : (raw.data || raw.stations || raw.result || []);
+    const updates = {}, live = {};
+    let nNew = 0, srcLabel = '';
+    for (const st of arr) {
+      const id = st.stationCode || st.id;
+      if (!id) continue;
+      const safeId = String(id).replace(/[.#$\/\[\]]/g, '_');   // รูปแบบ key เดียวกับ poll.yml เดิม
+      const ts  = parseThaiTime(st.sourceDtm);
+      const frc = _num(st.value && st.value.frc_2);
+      const ec  = _num(st.value && st.value.ecm_5);
+      if (!_okTs(ts) || (frc == null && ec == null)) continue;
+      live[safeId] = { frc: frc ?? 0, ec, ts };
+      if (_lastTwqmsTs[safeId] === ts) continue;                 // ยังเป็นรอบเดิม
+      updates[`history/${safeId}/${ts}`] = { frc, ec, ts };
+      _lastTwqmsTs[safeId] = ts; nNew++; srcLabel = st.sourceDtm;
+    }
+    if (nNew) {
+      updates['live'] = live;                                    // อัปเดต live เฉพาะเมื่อมีรอบใหม่
+      await db.ref().update(updates);                            // เขียนครั้งเดียวทั้งชุด
+      console.log(`[Collect] TWQMS รอบ ${srcLabel} → บันทึก ${nNew} สถานี`);
+    }
+  } catch (e) { console.error('[Collect] TWQMS error:', e.message); }
 }
 
-// รันทันทีตอน start และทุก 10 นาที
+// ── 2. bigdata น้ำดิบ: ฟังก์ชันกลาง ดึงค่าล่าสุดรายสถานี ─────────────────────────
+async function _fetchBigdataLatest(url, ids) {
+  const resp = await axios.get(url, { timeout: 30000 });
+  const records = (resp.data && resp.data.data) || [];
+  const latest = {};
+  for (const r of records) {
+    if (!ids.includes(r.stn_id)) continue;
+    if (!latest[r.stn_id] || r.datetimes > latest[r.stn_id].datetimes) latest[r.stn_id] = r;
+  }
+  return { records, latest };
+}
+
+// ── 2a. น้ำดิบเจ้าพระยา (สำแล ฯลฯ) → history/raw_{sid}/{ts}  (รูปแบบเดียวกับที่หน้าเว็บเคยเขียน) ──
+const RAW_CP_API_URL = 'https://bigdata.mwa.co.th/data-service/internal/big-data/api/v1/783f543c-666c-35b4-795b-40dd2446b291/720721b3-cdaa-199d-9286-52f97cf00dfb/data?token=y0pBvoNbZSQWULB88PXeHBn2dHEgzaFyxSeH3V7a9jgWwn9VAmuGLhqkwrHLpdRm7wNn4DJsYLUT81JpZTwFqZkawNqdq2Osi1igZmYMlD37sKnU8Sy3aLgAQjKoHcdN';
+const RAW_CP_IDS = ['S1','S3','S4','S6','S7','T1','T2','T3','T4'];
+const _lastRawTs = {};
+async function collectRawChaoPhraya() {
+  try {
+    const { latest } = await _fetchBigdataLatest(RAW_CP_API_URL, RAW_CP_IDS);
+    const updates = {}; let n = 0;
+    for (const [sid, r] of Object.entries(latest)) {
+      const ts = parseThaiTime(r.datetimes), ec = _num(r.conducted);
+      if (!_okTs(ts) || ec == null || ec <= 0) continue;
+      if (_lastRawTs['cp_' + sid] === ts) continue;
+      updates[`history/raw_${sid}/${ts}`] = { ec, temp: _num(r.temp), ts };
+      _lastRawTs['cp_' + sid] = ts; n++;
+    }
+    if (n) {
+      await db.ref().update(updates);
+      console.log(`[Collect] น้ำดิบเจ้าพระยา → บันทึก ${n} สถานี | S1 EC=${latest.S1 ? latest.S1.conducted : '-'} (${latest.S1 ? latest.S1.datetimes : '-'})`);
+    }
+  } catch (e) { console.error('[Collect] น้ำดิบเจ้าพระยา error:', e.message); }
+}
+
+// ── 2b. น้ำดิบแม่กลอง → rawmk/{sid} (ค่าปัจจุบัน) + history/rawmk_{sid}/{ts} ──────
+// [แก้] URL เดิมชี้ไป dataset เจ้าพระยา (ซ้ำกับ 2a) จึงไม่เคยเจอสถานีแม่กลอง → บันทึก 0 สถานีมาตลอด
+//       ใช้ dataset แม่กลองตัวเดียวกับที่หน้าเว็บ (app.js MK_API) ใช้อยู่
+const MK_API_URL = 'https://bigdata.mwa.co.th/data-service/internal/big-data/api/v1/783f543c-666c-35b4-795b-40dd2446b291/7e911fa9-0a52-970a-eef5-2170851f3530/data?token=3XSOeKch6WiCXcw37EWhVX0Z0mPLncwmwTY6fgkm6tVCaIuNU11IiRRydPCUadnFGvfV2mPPrLc6hUk87JtA6rJSPVKNEr0HhJOuRPQ0CR3v3kaFIzk71Bm1N8uqST2b';
+const MK_STATION_IDS = ['T5','S16','S11','S9','S12','S13','S14'];
+async function fetchAndSaveMkData() {
+  try {
+    const { records, latest } = await _fetchBigdataLatest(MK_API_URL, MK_STATION_IDS);
+    const updates = {}; let n = 0;
+    for (const [sid, r] of Object.entries(latest)) {
+      const ts = parseThaiTime(r.datetimes), ec = _num(r.conducted);
+      if (!_okTs(ts) || ec == null || ec <= 0) continue;
+      updates[`rawmk/${sid}`] = {
+        ec, temp: _num(r.temp) || 0, ph: _num(r.ph) || 0, turbid: _num(r.turbid) || 0,
+        deo: _num(r.deo) || 0, salinity: _num(r.salinity) || 0, tds: _num(r.tds) || 0,
+        time: r.datetimes, ts,
+      };
+      if (_lastRawTs['mk_' + sid] === ts) continue;
+      updates[`history/rawmk_${sid}/${ts}`] = { ec, ts };      // เดิมใช้ push() + เวลาที่ดึง → จุดซ้ำทุก 10 นาที
+      _lastRawTs['mk_' + sid] = ts; n++;
+    }
+    if (Object.keys(updates).length) await db.ref().update(updates);
+    const found = Object.keys(latest);
+    console.log(`[MK] records ${records.length} | พบ ${found.length} สถานี [${found.join(',')}] | บันทึกรอบใหม่ ${n} | S14 EC=${latest.S14 ? latest.S14.conducted : '-'}`);
+  } catch (e) { console.error('[MK] ❌ fetch error:', e.message); }
+}
+
+// รันทันทีตอน start แล้วตามรอบ — เช็คถี่กว่ารอบอัปเดตของแหล่ง จะได้ไม่พลาดรอบ (บันทึกเฉพาะรอบใหม่อยู่แล้ว)
+collectTwqms();
+collectRawChaoPhraya();
 fetchAndSaveMkData();
-cron.schedule('*/10 * * * *', fetchAndSaveMkData, { timezone: 'Asia/Bangkok' });
+cron.schedule('*/5 * * * *',  collectTwqms,         { timezone: 'Asia/Bangkok' });
+cron.schedule('*/10 * * * *', collectRawChaoPhraya, { timezone: 'Asia/Bangkok' });
+cron.schedule('*/10 * * * *', fetchAndSaveMkData,   { timezone: 'Asia/Bangkok' });
 // ── ⚡ EC Forecast (XGBoost) — พยากรณ์ EC ล่วงหน้า 24/48 ชม. ทุกชั่วโมง ──────
 // รัน predict_ec.py → ดึง TWQMS ล่าสุด → เขียน /forecast/ec/{station} ใน Firebase
 function runECForecast() {
