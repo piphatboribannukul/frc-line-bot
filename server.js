@@ -1215,9 +1215,31 @@ async function handleSendAlert(replyToken) {
   return lineReply(replyToken, withQuickReply([{type:'text',text:`📢 ส่งแจ้งเตือน Broadcast สำเร็จ\nพบ ${alertList.length} สถานีผิดปกติ`}]));
 }
 
+// ═══ [ประหยัดดาวน์โหลด] โหลด history เฉพาะ "วันนี้" รายสถานี แทนการโหลดทั้ง node 7 วัน ═══
+// ใช้กับ สรุปวัน / ตารางสรุปวัน / broadcast สรุปวัน ซึ่งกรอง p.ts >= เที่ยงคืนวันนี้อยู่แล้ว
+// - รายชื่อสถานีเอาจาก /live (poll.yml เขียน key รูปแบบเดียวกับ history) ~3 KB
+// - key ของ history = timestamp ms (13 หลัก ยาวเท่ากัน) → orderByKey().startAt() กรองที่ server ได้ ไม่ต้องตั้ง index
+// - คืนค่าหน้าตาเหมือน DataSnapshot (exists / forEach) ฟังก์ชันเดิมจึงทำงานเหมือนเดิมทุกบรรทัด
+async function loadTodayHistorySnap() {
+  const today = new Date(); today.setHours(0,0,0,0);          // สูตรเดียวกับในฟังก์ชันเดิม
+  const startKey = String(today.getTime() - 60 * 60 * 1000);  // เผื่อ 1 ชม. (ฟังก์ชันเดิมกรอง ts อีกชั้น)
+  const liveSnap = await db.ref('live').once('value');
+  const codes = Object.keys(liveSnap.val() || {});
+  const results = await Promise.all(codes.map(code =>
+    db.ref(`history/${code}`).orderByKey().startAt(startKey).once('value')
+      .then(s => [code, s]).catch(() => [code, null])));
+  const hits = results.filter(([, s]) => s && s.exists());
+  return {
+    exists: () => hits.length > 0,
+    forEach: (fn) => { for (const [code, s] of hits) {
+      if (fn({ key: code, val: () => s.val(), forEach: (g) => s.forEach(g) }) === true) return true;
+    } return false; }
+  };
+}
+
 async function handleBroadcastDaily(replyToken) {
   try {
-    const snap = await db.ref('history').once('value');
+    const snap = await loadTodayHistorySnap();   // [ประหยัดดาวน์โหลด] เดิมโหลด history ทั้งก้อน 7 วัน
     if (!snap.exists()) { if (replyToken) await lineReply(replyToken, withQuickReply([{type:'text',text:'❌ ไม่พบข้อมูลประวัติ'}])); return; }
     const today = new Date(); today.setHours(0,0,0,0);
     const todayMs = today.getTime();
@@ -1252,7 +1274,7 @@ async function handleBroadcastDaily(replyToken) {
 
 async function replyDailySummary(replyToken) {
   try {
-    const snap = await db.ref('history').once('value');
+    const snap = await loadTodayHistorySnap();   // [ประหยัดดาวน์โหลด] เดิมโหลด history ทั้งก้อน 7 วัน
     if (!snap.exists()) {
       return lineReply(replyToken, withQuickReply([{ type: 'text', text: '❌ ไม่พบข้อมูลประวัติ' }]));
     }
@@ -1582,7 +1604,7 @@ async function replyDailyTable(replyToken) {
 
 async function replyDailyTableSummary(replyToken) {
   try {
-    const snap = await db.ref('history').once('value');
+    const snap = await loadTodayHistorySnap();   // [ประหยัดดาวน์โหลด] เดิมโหลด history ทั้งก้อน 7 วัน
     if (!snap.exists()) return lineReply(replyToken, withQuickReply([{type:'text',text:'❌ ไม่พบข้อมูลประวัติ'}]));
 
     const today = new Date(); today.setHours(0,0,0,0);
