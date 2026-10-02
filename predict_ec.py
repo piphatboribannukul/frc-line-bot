@@ -79,7 +79,8 @@ def fetch_latest_ec():
     """อ่าน EC ล่าสุดจาก /history_ec (ที่ server.js เขียนทุก 10 นาที)
     คืน dict {ชื่อสถานี: ec} ของชั่วโมงล่าสุดที่มีข้อมูล"""
     try:
-        raw = fdb.reference("history_ec").get() or {}
+        # [ประหยัดดาวน์โหลด] อ่านเฉพาะชั่วโมงล่าสุด 1 key แทนทั้ง node
+        raw = fdb.reference("history_ec").order_by_key().limit_to_last(1).get() or {}
     except Exception as e:
         print(f"[EC] อ่าน /history_ec ไม่ได้: {e}")
         return {}
@@ -124,7 +125,11 @@ def append_buffer(readings, ts):
     fdb.reference(f"history_ec/{ts.strftime('%Y%m%d%H')}").update(readings)
 
 def load_buffer(hours=200):
-    raw = fdb.reference("history_ec").get() or {}
+    # [ประหยัดดาวน์โหลด] อ่านเฉพาะ key ตั้งแต่ (ตอนนี้ − hours ชม.) แทนทั้ง node
+    # key = YYYYMMDDHH เวลาไทย เรียงตามตัวอักษร = เรียงตามเวลา → order_by_key ไม่ต้องตั้ง index
+    # ผลลัพธ์เหมือนเดิมทุกประการ เพราะเดิมก็ .tail(hours) ทิ้งของเก่าอยู่แล้ว
+    start_key = (datetime.now(BKK) - timedelta(hours=hours + 2)).strftime("%Y%m%d%H")
+    raw = fdb.reference("history_ec").order_by_key().start_at(start_key).get() or {}
     rows = {}
     for key, stations in raw.items():
         try:
