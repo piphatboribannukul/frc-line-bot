@@ -405,7 +405,7 @@ function quickReplyItems(subset) {
     chlorine: { type: 'action', action: { type: 'message', label: '💧 คลอรีน', text: 'คลอรีน' } },
     daily:    { type: 'action', action: { type: 'message', label: '📊 สรุปวัน', text: 'สรุปวัน' } },
     ec:       { type: 'action', action: { type: 'message', label: '⚡ EC', text: 'ec' } },
-    turb:     { type: 'action', action: { type: 'message', label: '🌫️ ความขุ่น', text: 'สรุปความขุ่น' } },
+    turb:     { type: 'action', action: { type: 'message', label: "💧 ความขุ่น", text: 'สรุปความขุ่น' } },
     table:    { type: 'action', action: { type: 'message', label: '📋 ตาราง', text: 'ตารางวัน' } },
     low:      { type: 'action', action: { type: 'message', label: '🔴 สถานีต่ำ', text: 'สถานีต่ำ' } },
     send:     { type: 'action', action: { type: 'message', label: '🏭 สูบส่ง', text: 'ดูสูบส่ง' } },
@@ -1389,9 +1389,9 @@ async function replyTurbidityRegion(replyToken, idx, dayOffset = 0) {
     body.push({ type: 'text', text: 'เกณฑ์ 🟢 ≤4 · 🟡 >4–5 · 🔴 >5 NTU · ⚪ ไม่มีข้อมูล', size: 'xxs', color: COLORS.textMuted, margin: 'md', wrap: true });
     const back = dayOffset < 0 ? 'ขุ่นเมื่อวาน' : 'สรุปความขุ่น';
     return lineReply(replyToken, withQuickReply([{
-      type: 'flex', altText: `🌫️ ความขุ่น ${r.name} ${dayLabel} — เฉลี่ย ${f2(g.avg)} สูงสุด ${f2(g.max)} NTU`,
+      type: 'flex', altText: `💧 ความขุ่น ${r.name} ${dayLabel} — เฉลี่ย ${f2(g.avg)} สูงสุด ${f2(g.max)} NTU`,
       contents: { type: 'bubble', size: 'mega',
-        header: makeHeader(`🌫️ ความขุ่น — ${r.name}`, dayOffset < 0 ? `${dayLabel} (ทั้งวัน)` : `${dayLabel} · 0.00 – ${thaiTime()} น.`, COLORS.headerDark, IMAGES.logo),
+        header: makeHeader(`💧 ความขุ่น — ${r.name}`, dayOffset < 0 ? `${dayLabel} (ทั้งวัน)` : `${dayLabel} · 0.00 – ${thaiTime()} น.`, COLORS.headerDark, IMAGES.logo),
         body: { type: 'box', layout: 'vertical', paddingAll: '10px', paddingTop: '8px', contents: body },
         footer: { type: 'box', layout: 'vertical', paddingAll: '6px', spacing: 'xs', contents: [
           { type: 'box', layout: 'horizontal', spacing: 'xs', contents: TUR_REGIONS.map((x, i) => ({ type: 'button', style: i === idx ? 'secondary' : 'primary', height: 'sm', color: i === idx ? undefined : x.col, flex: 1,
@@ -1412,7 +1412,7 @@ async function replyTurbiditySummary(replyToken, dayOffset = 0) {
     const S = await loadTurbidityStats(start, end);
     const dayLabel = thaiDate(new Date(start + 12 * 3600e3));   // เที่ยงวันของวันนั้น (กันข้ามวันจาก timezone)
     if (!Object.keys(S).length)
-      return lineReply(replyToken, withQuickReply([{ type: 'text', text: `🌫️ ยังไม่มีข้อมูลความขุ่น${dayOffset < 0 ? 'ของเมื่อวาน' : 'สะสมวันนี้'}\n(เริ่มเก็บข้อมูลความขุ่นตั้งแต่ 3 ต.ค. 69 16:12 น.)` }]));
+      return lineReply(replyToken, withQuickReply([{ type: 'text', text: `💧 ยังไม่มีข้อมูลความขุ่น${dayOffset < 0 ? 'ของเมื่อวาน' : 'สะสมวันนี้'}\n(เริ่มเก็บข้อมูลความขุ่นตั้งแต่ 3 ต.ค. 69 16:12 น.)` }]));
 
     const all = Object.keys(TUR_STATIONS), has = all.filter(id => S[id]);
     const cls = v => v == null ? 'na' : v <= 4 ? 'g' : v <= 5 ? 'y' : 'r';
@@ -1429,35 +1429,43 @@ async function replyTurbiditySummary(replyToken, dayOffset = 0) {
     const f2 = v => v == null ? '–' : v.toFixed(2);
     const exceed = has.filter(id => S[id].max > 4).sort((a, b) => S[b].max - S[a].max);
 
-    // ช่องสี่เหลี่ยมเล็ก: น้ำออกจากโรงงาน 4 แห่ง
-    const plantBox = p => { const g = turGroupStats(p.ids, S); return {
-      type: 'box', layout: 'vertical', flex: 1, alignItems: 'center', paddingAll: '5px', cornerRadius: '6px', backgroundColor: COLORS.bgCard,
+    // บล็อกใหญ่: ไอคอน 3D ซ้าย + เนื้อหาขวา (สไตล์เดียวกับการ์ดคลอรีน)
+    const bigBlock = (icon, title, bg, hint, inner) => ({
+      type: 'box', layout: 'horizontal', margin: 'sm', paddingAll: '8px', paddingStart: '8px', cornerRadius: '8px', backgroundColor: bg,
       contents: [
-        { type: 'text', text: f2(g.avg), size: 'md', weight: 'bold', color: turColor(g.avg), align: 'center' },
-        { type: 'text', text: p.name.replace('รง.', ''), size: 'xxs', color: COLORS.textSecondary, align: 'center' },
-        { type: 'text', text: `สูงสุด ${f2(g.max)}`, size: 'xxs', color: turColor(g.max), align: 'center' },
-      ] }; };
-
-    // บล็อก สูบส่ง / สูบจ่าย / Monitor (รูปแบบเดียวกับการ์ดคลอรีน)
-    const typeRow = (icon, label, t, bg) => {
-      const ids = all.filter(id => turType(id) === t), g = turGroupStats(ids, S), c = cnt(ids);
-      return {
-        type: 'box', layout: 'horizontal', margin: 'xs', paddingAll: '8px', paddingStart: '10px', cornerRadius: '8px', backgroundColor: bg,
-        contents: [
-          { type: 'box', layout: 'vertical', flex: 0, width: '56px', height: '56px', justifyContent: 'center', alignItems: 'center',
-            contents: [{ type: 'image', url: icon, size: '56px', aspectMode: 'fit', aspectRatio: '1:1' }] },
-          { type: 'box', layout: 'vertical', flex: 5, margin: 'md', justifyContent: 'center', contents: [
-            { type: 'box', layout: 'horizontal', contents: [
-              { type: 'text', text: label, size: 'sm', weight: 'bold', color: COLORS.textPrimary, flex: 3 },
-              { type: 'text', text: f2(g.avg), size: 'md', weight: 'bold', color: turColor(g.avg), flex: 0 },
-              { type: 'text', text: ' NTU', size: 'xxs', color: COLORS.textMuted, flex: 0, gravity: 'bottom' },
-            ] },
-            { type: 'text', text: `เขียว≤4  เหลือง>4–5  แดง>5  ·  สูงสุด ${f2(g.max)}`, size: 'xxs', color: COLORS.textMuted },
-            { type: 'text', text: `🟢${c.g} 🟡${c.y} 🔴${c.r}  ·  ${c.n} สถานี`, size: 'xxs', color: COLORS.textSecondary },
+        { type: 'box', layout: 'vertical', flex: 0, width: '52px', justifyContent: 'flex-start', alignItems: 'center', paddingTop: '2px',
+          contents: [{ type: 'image', url: icon, size: '52px', aspectMode: 'fit', aspectRatio: '1:1' }] },
+        { type: 'box', layout: 'vertical', flex: 5, margin: 'md', contents: [
+          { type: 'box', layout: 'horizontal', margin: 'none', contents: [
+            { type: 'text', text: title, size: 'sm', weight: 'bold', color: COLORS.textPrimary, flex: 4 },
+            ...(hint ? [{ type: 'text', text: hint, size: 'xxs', color: COLORS.textMuted, flex: 3, align: 'end', gravity: 'center' }] : []),
           ] },
-        ],
-      };
-    };
+          { type: 'box', layout: 'vertical', margin: 'xs', contents: inner },
+        ] },
+      ],
+    });
+    // โรงงาน: ช่อง 2×2 — ชื่อ · ค่าเฉลี่ย (ใหญ่) · ค่าสูงสุด (เล็ก)
+    const plantCell = p => { const g = turGroupStats(p.ids, S); return {
+      type: 'box', layout: 'vertical', flex: 1, paddingAll: '5px', paddingStart: '7px', cornerRadius: '6px', backgroundColor: '#ffffffb3',
+      contents: [
+        { type: 'text', text: p.name.replace('รง.', ''), size: 'xs', color: COLORS.textSecondary },
+        { type: 'box', layout: 'horizontal', contents: [
+          { type: 'text', text: f2(g.avg), size: 'md', weight: 'bold', color: turColor(g.avg), flex: 0 },
+          { type: 'text', text: ` สูงสุด ${f2(g.max)}`, size: 'xxs', color: turColor(g.max), flex: 1, gravity: 'bottom' },
+        ] },
+      ] }; };
+    // บริการ 1–5: แถวแตะได้ → รายละเอียดภาค
+    const regionLine = (r, i) => { const ids = turRegionIds(r), g = turGroupStats(ids, S); return {
+      type: 'box', layout: 'horizontal', margin: 'xs', paddingAll: '5px', cornerRadius: '6px', backgroundColor: '#ffffffb3', spacing: 'sm',
+      action: { type: 'message', label: r.name, text: `ขุ่นบริการ ${i + 1}${dayOffset < 0 ? ' เมื่อวาน' : ''}` },
+      contents: [
+        { type: 'box', layout: 'vertical', flex: 0, width: '22px', height: '22px', cornerRadius: '6px', backgroundColor: r.col, justifyContent: 'center', alignItems: 'center',
+          contents: [{ type: 'text', text: String(i + 1), size: 'xs', weight: 'bold', color: '#ffffff', align: 'center' }] },
+        { type: 'text', text: r.name, size: 'xs', color: COLORS.textPrimary, flex: 5, gravity: 'center' },
+        { type: 'text', text: f2(g.avg), size: 'sm', weight: 'bold', color: turColor(g.avg), flex: 3, align: 'end', gravity: 'center' },
+        { type: 'text', text: f2(g.max), size: 'xxs', color: turColor(g.max), flex: 3, align: 'end', gravity: 'center' },
+        { type: 'text', text: '›', size: 'sm', color: '#a78bfa', flex: 0, gravity: 'center' },
+      ] }; };
 
     const body = [
       { type: 'box', layout: 'horizontal', paddingAll: '10px', cornerRadius: '8px', backgroundColor: ob, contents: [
@@ -1477,12 +1485,14 @@ async function replyTurbiditySummary(replyToken, dayOffset = 0) {
       makeStatRow('ความขุ่นเฉลี่ย', `${avgAll.toFixed(2)} NTU`),
       makeStatRow('สูงสุด / ต่ำสุด', `${f2(S[maxId].max)} / ${f2(S[minId].min)} NTU`),
       { type: 'separator', margin: 'sm' },
-      { type: 'text', text: '🏭 น้ำออกจากโรงงานผลิตน้ำ (เฉลี่ย NTU)', size: 'xxs', weight: 'bold', color: COLORS.textSecondary, margin: 'sm' },
-      { type: 'box', layout: 'horizontal', margin: 'xs', spacing: 'xs', contents: TUR_PLANTS.map(plantBox) },
-      { type: 'separator', margin: 'sm' },
-      typeRow(IMAGES.iconSend, 'สูบส่ง', 'send', '#dbeafe'),
-      typeRow(IMAGES.iconPump, 'สูบจ่าย', 'pump', '#d1fae5'),
-      typeRow(IMAGES.iconMonitor, 'Monitor', 'monitor', '#ede9fe'),
+      bigBlock(IMAGES.iconSend, 'น้ำออกจากโรงงานผลิตน้ำ', '#dbeafe', null, [
+        { type: 'box', layout: 'horizontal', spacing: 'xs', contents: TUR_PLANTS.slice(0, 2).map(plantCell) },
+        { type: 'box', layout: 'horizontal', spacing: 'xs', margin: 'xs', contents: TUR_PLANTS.slice(2).map(plantCell) },
+      ]),
+      bigBlock(IMAGES.iconMonitor, 'น้ำในระบบจ่าย', '#ede9fe', 'เฉลี่ย · สูงสุด', [
+        ...TUR_REGIONS.map(regionLine),
+        { type: 'text', text: 'แตะแต่ละภาคเพื่อดูรายสถานี ›', size: 'xxs', color: '#7c3aed', margin: 'sm' },
+      ]),
     ];
     if (exceed.length) {
       body.push({ type: 'separator', margin: 'xs' });
@@ -1492,16 +1502,14 @@ async function replyTurbiditySummary(replyToken, dayOffset = 0) {
           text: `${turDot(S[id].max)} ${TUR_STATIONS[id][0].substring(0, 24)} — ${S[id].max.toFixed(2)} NTU (${thaiTime(new Date(S[id].maxTs))} น.)` })),
       ] });
     }
-    body.push({ type: 'text', text: `ไม่มีข้อมูล ${all.length - total} สถานี · กดปุ่มบริการ 1–5 เพื่อดูรายสถานี`, size: 'xxs', color: COLORS.textMuted, margin: 'sm', wrap: true });
+    body.push({ type: 'text', text: `เกณฑ์ 🟢 ≤4 · 🟡 >4–5 · 🔴 >5 NTU · ไม่มีข้อมูล ${all.length - total} สถานี`, size: 'xxs', color: COLORS.textMuted, margin: 'sm', wrap: true });
 
     const flex = {
-      type: 'flex', altText: `🌫️ ความขุ่น ${dayLabel} — ${oe}${ot} เฉลี่ย ${avgAll.toFixed(2)} NTU`,
+      type: 'flex', altText: `💧 ความขุ่น ${dayLabel} — ${oe}${ot} เฉลี่ย ${avgAll.toFixed(2)} NTU`,
       contents: { type: 'bubble', size: 'mega',
-        header: makeHeader('🌫️ ความขุ่นน้ำประปา (Turbidity)', dayOffset < 0 ? `${dayLabel} (ทั้งวัน)` : `${dayLabel} · 0.00 – ${thaiTime()} น.`, COLORS.headerDark, IMAGES.logo),
+        header: makeHeader('💧 ความขุ่นน้ำประปา (Turbidity)', dayOffset < 0 ? `${dayLabel} (ทั้งวัน)` : `${dayLabel} · 0.00 – ${thaiTime()} น.`, COLORS.headerDark, IMAGES.logo),
         body: { type: 'box', layout: 'vertical', paddingAll: '10px', paddingTop: '8px', contents: body },
         footer: { type: 'box', layout: 'vertical', paddingAll: '6px', spacing: 'xs', contents: [
-          { type: 'box', layout: 'horizontal', spacing: 'xs', contents: TUR_REGIONS.slice(0, 3).map((r, i) => turRegionBtn(r, i, dayOffset)) },
-          { type: 'box', layout: 'horizontal', spacing: 'xs', contents: TUR_REGIONS.slice(3).map((r, i) => turRegionBtn(r, i + 3, dayOffset)) },
           { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [
             { type: 'button', style: 'primary', height: 'sm', color: COLORS.accent, flex: 1, action: { type: 'uri', label: '📄 รายงานเต็ม', uri: TUR_REPORT_URL } },
             { type: 'button', style: 'primary', height: 'sm', color: '#0f172a', flex: 1, action: { type: 'message', label: dayOffset < 0 ? 'วันนี้' : 'เมื่อวาน', text: dayOffset < 0 ? 'สรุปความขุ่น' : 'ขุ่นเมื่อวาน' } },
