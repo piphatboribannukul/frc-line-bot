@@ -758,7 +758,7 @@ function banner(msg,bg,col){const b=document.getElementById('dayload');b.style.d
 function bannerHide(){document.getElementById('dayload').style.display='none';}
 function loadScript(src){return new Promise((ok,fail)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=()=>fail(new Error('โหลด '+src+' ไม่ได้'));document.head.appendChild(s);});}
 const norm=t=>String(t||'').replace(/\s+/g,'');
-const okNum=v=>{const n=typeof v==='number'?v:parseFloat(v);return (isFinite(n)&&n>=0&&n<1000)?n:null;};   // ตัด -9999 / ค่าติดลบ / ค่าผิดปกติ
+const okNum=v=>{const n=typeof v==='number'?v:parseFloat(v);return (isFinite(n)&&n>0&&n<1000)?n:null;};   // ตัด -9999 / 0.00 (เซนเซอร์ error) / ค่าติดลบ / ค่าผิดปกติ
 
 function parseSheet(rows){
   let name=null,date=null,col=-1,maxV=null,maxT='',minV=null,sum=0,n=0;

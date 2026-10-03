@@ -795,6 +795,8 @@ async function handleTextMessage(replyToken, text, userId, sourceType = 'user') 
     //   (ยกเว้น สรุปวัน / ตาราง / ส่ง… / แจ้งซ่อม ที่มีคำสั่งเฉพาะอยู่แล้ว)
     if (/สรุป|รายงาน|report|summary/i.test(t) && !/คลอรีน|frc|ขุ่น|turb|(^|[^a-z])ec([^a-z]|$)|ความนำ|conduct|วัน|daily|ตาราง|table|ส่ง|broadcast|ซ่อม/i.test(t))
       return replyWaterQualityMenu(replyToken);
+    { const m = t.match(/^(ขุ่น|ความขุ่น|คลอรีน|frc|ec|ความนำไฟฟ้า|ความนำ)โรงงาน(เมื่อวาน)?$/i);
+      if (m) return replyParamPlants(replyToken, /ขุ่น/.test(m[1]) ? 'tub' : /คลอรีน|frc/i.test(m[1]) ? 'frc' : 'ec', m[2] ? -1 : 0); }
     { const m = t.match(/^(คลอรีน|frc|ec|ความนำไฟฟ้า|ความนำ)บริการ([1-5])(เมื่อวาน)?$/i);
       if (m) return replyParamRegion(replyToken, /คลอรีน|frc/i.test(m[1]) ? 'frc' : 'ec', Number(m[2]) - 1, m[3] ? -1 : 0); }
     if (/^(สรุป)?(คลอรีน|frc)เมื่อวาน$|^เมื่อวาน(คลอรีน|frc)$/i.test(t)) return replyParamSummary(replyToken, 'frc', -1);
@@ -1574,20 +1576,20 @@ async function replyTurbiditySummary(replyToken, dayOffset = 0) { return replyPa
 // ═══════════════════════════════════════════════════════════════════════════════
 const WQP = {
   tub: { key: 'tub', node: 'history_wq', field: 'tub', short: 'ความขุ่น', title: '💧 ความขุ่นน้ำประปา', en: 'Turbidity', unit: 'NTU', dec: 2,
-    cls: v => v <= 4 ? 'g' : v <= 5 ? 'y' : 'r', valid: v => v >= 0 && v < 1000,
+    cls: v => v <= 4 ? 'g' : v <= 5 ? 'y' : 'r', valid: v => v > 0 && v < 1000,   // 0.00 พอดี = เซนเซอร์ error/ไม่มีข้อมูล
     risk: 'max', exceed: d => d.max > 4, exceedText: 'ค่าสูงสุดเกิน 4 NTU', ringLabel: 'มีช่วงเกิน 4',
     legend: ['≤ 4', '> 4–5', '> 5'], cnt: ['เขียว ≤4', 'เหลือง >4–5', 'แดง >5'], pass: '≤4 NTU',
-    cmd: 'สรุปความขุ่น', yCmd: 'ขุ่นเมื่อวาน', regionCmd: 'ขุ่นบริการ', since: 'เริ่มเก็บข้อมูลความขุ่นตั้งแต่ 3 ต.ค. 69 16:12 น.' },
+    cmd: 'สรุปความขุ่น', yCmd: 'ขุ่นเมื่อวาน', regionCmd: 'ขุ่นบริการ', plantCmd: 'ขุ่นโรงงาน', since: 'เริ่มเก็บข้อมูลความขุ่นตั้งแต่ 3 ต.ค. 69 16:12 น.' },
   frc: { key: 'frc', node: 'history', field: 'frc', short: 'คลอรีน', title: '🧪 คลอรีนอิสระคงเหลือ', en: 'FRC', unit: 'mg/L', dec: 2,
-    cls: v => (v < 0.01 || v > 5) ? 'r' : (v < 0.2 || v > 2) ? 'y' : 'g', valid: v => v >= 0 && v < 20,
+    cls: v => (v < 0.01 || v > 5) ? 'r' : (v < 0.2 || v > 2) ? 'y' : 'g', valid: v => v > 0 && v < 20,   // 0.00 พอดี = เซนเซอร์ error (TWQMS แสดง E) / poll.yml เขียน 0 แทนค่าว่าง → ไม่นำมาคำนวณ
     risk: 'min', exceed: d => d.min < 0.2 || d.max > 2, exceedText: 'มีช่วงนอกเกณฑ์ 0.2–2.0 mg/L', ringLabel: 'มีช่วงนอก 0.2–2',
     legend: ['0.2–2.0', '<0.2 / 2–5', 'ไม่พบ / >5'], cnt: ['เขียว 0.2–2', 'เหลือง', 'แดง'], pass: '0.2–2.0 mg/L',
-    cmd: 'สรุปคลอรีน', yCmd: 'คลอรีนเมื่อวาน', regionCmd: 'คลอรีนบริการ', since: 'ข้อมูลย้อนหลังเก็บ 7 วัน' },
+    cmd: 'สรุปคลอรีน', yCmd: 'คลอรีนเมื่อวาน', regionCmd: 'คลอรีนบริการ', plantCmd: 'คลอรีนโรงงาน', since: 'ข้อมูลย้อนหลังเก็บ 7 วัน' },
   ec: { key: 'ec', node: 'history', field: 'ec', short: 'ความนำไฟฟ้า', title: '⚡ ความนำไฟฟ้า', en: 'EC', unit: 'µS/cm', dec: 0,
     cls: v => v <= 500 ? 'g' : v <= 1200 ? 'y' : 'r', valid: v => v > 0 && v < 100000,
     risk: 'max', exceed: d => d.max > 500, exceedText: 'ค่าสูงสุดเกิน 500 µS/cm', ringLabel: 'มีช่วงเกิน 500',
     legend: ['≤ 500', '501–1,200', '> 1,200'], cnt: ['เขียว ≤500', 'เหลือง ≤1,200', 'แดง >1,200'], pass: '≤500 µS/cm',
-    cmd: 'สรุป EC', yCmd: 'ECเมื่อวาน', regionCmd: 'ECบริการ', since: 'ข้อมูลย้อนหลังเก็บ 7 วัน' },
+    cmd: 'สรุป EC', yCmd: 'ECเมื่อวาน', regionCmd: 'ECบริการ', plantCmd: 'ECโรงงาน', since: 'ข้อมูลย้อนหลังเก็บ 7 วัน' },
 };
 const WQ_HEX = { g: '#16a34a', y: '#f59e0b', r: '#dc2626', na: '#94a3b8' };
 const wqCls = (P, v) => v == null ? 'na' : P.cls(v);
@@ -1595,6 +1597,7 @@ const wqColor = (P, v) => ({ g: COLORS.good, y: COLORS.warn, r: COLORS.bad, na: 
 const wqDot = (P, v) => ({ g: '🟢', y: '🟡', r: '🔴', na: '⚪' })[wqCls(P, v)];
 const wqFmt = (P, v) => v == null ? '–' : P.dec === 0 ? Math.round(v).toLocaleString('en-US') : v.toFixed(P.dec);
 const wqRiskVal = (P, d) => d == null ? null : (P.risk === 'min' ? d.min : d.max);
+const wqShort = n => { if (n.length <= 30) return n; const c = n.slice(0, 30), sp = c.lastIndexOf(' '); return (sp > 15 ? c.slice(0, sp) : c).replace(/[\s(]+$/, '') + '…'; };
 const wqRiskLabel = P => P.risk === 'min' ? 'ต่ำสุด' : 'สูงสุด';
 
 const _wqCache = {};
@@ -1612,8 +1615,6 @@ async function loadParamStats(P, startTs, endTs) {
         if (!p) continue;
         const t = Number(p[P.field]);
         if (p[P.field] == null || !isFinite(t) || !P.valid(t)) continue;
-        // poll.yml (เลิกใช้ 3 ต.ค.) เคยเขียน 0 ทั้ง frc/ec เมื่อไม่มีค่า → ตัดทิ้ง
-        if (P.key === 'frc' && t === 0 && !(Number(p.ec) > 0)) continue;
         sum += t; n++;
         if (max == null || t > max) { max = t; maxTs = p.ts; }
         if (min == null || t < min) { min = t; minTs = p.ts; }
@@ -1669,6 +1670,7 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
     });
     const plantCell = p => { const g = wqGroup(P, p.ids, S); return {
       type: 'box', layout: 'vertical', flex: 1, paddingAll: '4px', cornerRadius: '6px', backgroundColor: '#ffffffb3',
+      action: { type: 'message', label: p.name, text: `${P.plantCmd}${dayOffset < 0 ? ' เมื่อวาน' : ''}` },
       contents: [
         { type: 'text', text: p.name.replace('รง.', ''), size: 'xxs', color: COLORS.textSecondary, align: 'center' },
         { type: 'text', text: f(g.avg), size: 'md', weight: 'bold', color: wqColor(P, g.avg), align: 'center' },
@@ -1705,6 +1707,7 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
       { type: 'separator', margin: 'sm' },
       bigBlock(IMAGES.iconSend, 'โรงงานผลิตน้ำ', '#dbeafe', `เฉลี่ย · ${RL}`, [
         { type: 'box', layout: 'horizontal', spacing: 'xs', contents: TUR_PLANTS.map(plantCell) },
+        { type: 'text', text: 'แตะเพื่อดูรายสถานี ›', size: 'xxs', color: '#1d4ed8', margin: 'sm' },
       ]),
       bigBlock(IMAGES.iconMonitor, 'น้ำในระบบจ่าย', '#ede9fe', `เฉลี่ย · ${RL}`, [
         ...TUR_REGIONS.map(regionLine),
@@ -1717,7 +1720,7 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
         { type: 'text', text: `⚠️ ต้องติดตาม — ${P.exceedText} (${exceed.length})`, size: 'xxs', weight: 'bold', color: COLORS.bad, wrap: true },
         ...exceed.slice(0, 5).map(id => { const d = S[id], v = wqRiskVal(P, d), out = P.risk === 'min' && d.min >= 0.2 ? d.max : v, ts = out === d.max ? d.maxTs : d.minTs;
           return { type: 'text', size: 'xxs', color: COLORS.textSecondary, wrap: true,
-            text: `${wqDot(P, out)} ${TUR_STATIONS[id][0].substring(0, 24)} — ${f(out)} ${P.unit} (${thaiTime(new Date(ts))} น.)` }; }),
+            text: `${wqDot(P, out)} ${wqShort(TUR_STATIONS[id][0])} — ${f(out)} ${P.unit} (${thaiTime(new Date(ts))} น.)` }; }),
       ] });
     }
     body.push({ type: 'text', text: `เกณฑ์ 🟢 ${P.legend[0]} · 🟡 ${P.legend[1]} · 🔴 ${P.legend[2]} ${P.unit} · ไม่มีข้อมูล ${all.length - total} สถานี`, size: 'xxs', color: COLORS.textMuted, margin: 'sm', wrap: true });
@@ -1735,6 +1738,56 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
   } catch (err) {
     console.error(`[WQ:${pk}] summary error:`, err);
     return lineReply(replyToken, withQuickReply([{ type: 'text', text: `❌ สรุป${P.short} error: ` + err.message }]));
+  }
+}
+
+// รายละเอียดโรงงานผลิตน้ำ: 4 โรงงาน แยกหัวข้อ + สถานีน้ำออกของแต่ละโรงงาน
+async function replyParamPlants(replyToken, pk, dayOffset = 0) {
+  const P = WQP[pk];
+  try {
+    const R = wqRange(dayOffset), S = await loadParamStats(P, R.start, R.end), f = v => wqFmt(P, v), RL = wqRiskLabel(P);
+    const ids = TUR_PLANTS.flatMap(p => p.ids), g = wqGroup(P, ids, S);
+    const body = [
+      { type: 'box', layout: 'horizontal', paddingAll: '10px', cornerRadius: '8px', backgroundColor: '#dbeafe', spacing: 'md', contents: [
+        { type: 'image', url: IMAGES.iconSend, size: '44px', aspectMode: 'fit', aspectRatio: '1:1', flex: 0 },
+        { type: 'box', layout: 'vertical', flex: 5, contents: [
+          { type: 'box', layout: 'horizontal', contents: [
+            { type: 'text', text: `เฉลี่ย ${f(g.avg)}`, size: 'md', weight: 'bold', color: wqColor(P, g.avg), flex: 0 },
+            { type: 'text', text: ` · ${RL} ${f(g.risk)} ${P.unit}`, size: 'xs', color: wqColor(P, g.risk), flex: 0, gravity: 'bottom' } ] },
+          { type: 'text', text: `น้ำออกจากโรงงาน 4 แห่ง · มีข้อมูล ${g.n}/${g.tot} สถานี`, size: 'xxs', color: COLORS.textSecondary },
+        ] },
+      ] },
+      { type: 'box', layout: 'horizontal', margin: 'sm', contents: [
+        { type: 'text', text: 'สถานี', size: 'xxs', color: COLORS.textMuted, flex: 6 },
+        { type: 'text', text: 'เฉลี่ย', size: 'xxs', color: COLORS.textMuted, flex: 2, align: 'end' },
+        { type: 'text', text: RL, size: 'xxs', color: COLORS.textMuted, flex: 2, align: 'end' } ] },
+    ];
+    TUR_PLANTS.forEach(p => {
+      const pg = wqGroup(P, p.ids, S);
+      body.push({ type: 'box', layout: 'horizontal', margin: 'md', contents: [
+        { type: 'text', text: `▸ ${p.name}`, size: 'sm', weight: 'bold', color: '#1d4ed8', flex: 6 },
+        { type: 'text', text: f(pg.avg), size: 'sm', weight: 'bold', color: wqColor(P, pg.avg), flex: 2, align: 'end' },
+        { type: 'text', text: f(pg.risk), size: 'sm', weight: 'bold', color: wqColor(P, pg.risk), flex: 2, align: 'end' } ] });
+      body.push({ type: 'separator', color: '#1d4ed8' });
+      p.ids.forEach(id => { const d = S[id], rv = wqRiskVal(P, d);
+        body.push({ type: 'box', layout: 'horizontal', paddingTop: '3px', paddingBottom: '3px', contents: [
+          { type: 'text', text: `${wqDot(P, d && d.avg)} ${TUR_STATIONS[id][0]}`, size: 'xs', color: COLORS.textPrimary, flex: 6, wrap: true },
+          { type: 'text', text: d ? f(d.avg) : '–', size: 'xs', weight: 'bold', color: wqColor(P, d && d.avg), flex: 2, align: 'end', gravity: 'center' },
+          { type: 'text', text: d ? f(rv) : '–', size: 'xs', weight: 'bold', color: wqColor(P, rv), flex: 2, align: 'end', gravity: 'center' } ] }); });
+    });
+    body.push({ type: 'text', text: `เกณฑ์ 🟢 ${P.legend[0]} · 🟡 ${P.legend[1]} · 🔴 ${P.legend[2]} ${P.unit} · ⚪ ไม่มีข้อมูล`, size: 'xxs', color: COLORS.textMuted, margin: 'md', wrap: true });
+    return lineReply(replyToken, withQuickReply([{
+      type: 'flex', altText: `${P.title} โรงงานผลิตน้ำ ${R.label} — เฉลี่ย ${f(g.avg)} ${RL} ${f(g.risk)} ${P.unit}`,
+      contents: { type: 'bubble', size: 'mega',
+        header: turHeader(`${P.title.split(' ')[0]} ${P.short} — โรงงานผลิตน้ำ`, dayOffset < 0 ? `${R.label} (ทั้งวัน)` : `${R.label} · 0.00–${thaiTime()} น.`),
+        body: { type: 'box', layout: 'vertical', paddingAll: '10px', paddingTop: '8px', contents: body },
+        footer: { type: 'box', layout: 'vertical', paddingAll: '6px', contents: [
+          { type: 'button', style: 'primary', height: 'sm', color: '#0f172a', action: { type: 'message', label: `↩ กลับภาพรวม${P.short}`, text: dayOffset < 0 ? P.yCmd : P.cmd } } ] },
+      },
+    }]));
+  } catch (err) {
+    console.error(`[WQ:${pk}] plants error:`, err);
+    return lineReply(replyToken, withQuickReply([{ type: 'text', text: `❌ ${P.short}โรงงานผลิตน้ำ error: ` + err.message }]));
   }
 }
 
