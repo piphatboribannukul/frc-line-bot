@@ -787,6 +787,13 @@ async function handleTextMessage(replyToken, text, userId, sourceType = 'user') 
   }
 
   // ── วาระเปลี่ยนเซ็นเซอร์/อุปกรณ์ (ถามสถานะได้ทุกเมื่อ ไม่ต้องรอ cron วันที่ 1)
+  // ── เมนูรายงานคุณภาพน้ำ: "สรุป" / "สรุปคุณภาพน้ำ" / "สรุปค่า" / "รายงานคุณภาพน้ำ" → เลือก คลอรีน / ความขุ่น / ความนำไฟฟ้า
+  //    (สรุปคลอรีน / สรุป FRC → การ์ดคลอรีน [กฎ /คลอรีน|frc/ ด้านล่าง], สรุปความขุ่น / สรุปขุ่น → การ์ดความขุ่น)
+  { const t = msg.replace(/\s+/g, '');
+    if (/^(สรุป|สรุปคุณภาพน้ำ|สรุปค่า|รายงานคุณภาพน้ำ|คุณภาพน้ำ)$/i.test(t)) return replyWaterQualityMenu(replyToken);
+    if (/^สรุป(ความนำไฟฟ้า|ความนำ|ec|conduct\w*)$/i.test(t)) return replyECStatus(replyToken);   // TODO: เปลี่ยนเป็นการ์ดสรุป EC แบบใหม่
+  }
+
   if (/^เซ็นเซอร์$|วาระเปลี่ยน|เปลี่ยนเซ็นเซอร์/i.test(msg)) {
     const replyClient = { pushMessage: async ({ messages }) => lineReply(replyToken, messages) };
     return checkEquipmentDue(replyClient, userId, { always: true });
@@ -1299,7 +1306,7 @@ const TUR_REGIONS = [
   { name: 'บริการ 5', col: '#2fa88a', bg: '#e5f5f0', br: ['นนทบุรี','บางบัวทอง','มหาสวัสดิ์'] },
 ];
 const TUR_PLANT_IDS = TUR_PLANTS.flatMap(p => p.ids);
-const TUR_HEADER_COL = '#0284c7';   // หัวการ์ดความขุ่น: ฟ้าน้ำทะเล (เด่นกว่า navy)
+const TUR_HEADER_COL = '#a16207';   // หัวการ์ดรายงานคุณภาพน้ำ: ทอง-น้ำตาล (สะดุดตา)
 const TUR_REPORT_URL = 'https://piphatboribannukul.github.io/FRCfirebase/report_turbidity.html';
 const turColor = v => v == null ? '#94a3b8' : v <= 4 ? COLORS.good : v <= 5 ? COLORS.warn : COLORS.bad;
 const turDot   = v => v == null ? '⚪' : v <= 4 ? '🟢' : v <= 5 ? '🟡' : '🔴';
@@ -1471,6 +1478,38 @@ async function renderTurbidityMap(S, title) {
 const TUR_PUBLIC_URL = process.env.PUBLIC_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'https://frc-line-bot-production.up.railway.app');
 const turRangeTitle = dayOffset => { const st = bkkMidnight(dayOffset), d = thaiDate(new Date(st + 12 * 3600e3)); return dayOffset < 0 ? `${d} (ทั้งวัน)` : `${d} · 0.00 – ${thaiTime()} น.`; };
 
+// 📊 เมนูเลือกรายงานคุณภาพน้ำ
+async function replyWaterQualityMenu(replyToken) {
+  const item = (emoji, title, sub, text, bg, col) => ({
+    type: 'box', layout: 'horizontal', margin: 'sm', paddingAll: '12px', cornerRadius: '10px', backgroundColor: bg,
+    action: { type: 'message', label: title, text },
+    contents: [
+      { type: 'text', text: emoji, size: 'xxl', flex: 0, gravity: 'center' },
+      { type: 'box', layout: 'vertical', flex: 5, margin: 'lg', contents: [
+        { type: 'text', text: title, size: 'md', weight: 'bold', color: col },
+        { type: 'text', text: sub, size: 'xxs', color: COLORS.textSecondary, wrap: true },
+      ] },
+      { type: 'text', text: '›', size: 'xl', color: col, flex: 0, gravity: 'center' },
+    ],
+  });
+  const flex = {
+    type: 'flex', altText: '📊 รายงานคุณภาพน้ำ — เลือก คลอรีน / ความขุ่น / ความนำไฟฟ้า',
+    contents: { type: 'bubble', size: 'mega',
+      header: makeHeader('📊 รายงานคุณภาพน้ำ', 'เลือกพารามิเตอร์ที่ต้องการดู', TUR_HEADER_COL, IMAGES.logo),
+      body: { type: 'box', layout: 'vertical', paddingAll: '12px', contents: [
+        item('🧪', 'คลอรีน (FRC)', 'คลอรีนอิสระคงเหลือ ณ ปัจจุบัน · สูบส่ง · สูบจ่าย · Monitor', 'สรุปคลอรีน', '#fef2f2', '#be123c'),
+        item('💧', 'ความขุ่น (Turbidity)', 'ค่าเฉลี่ยวันนี้ · โรงงานผลิตน้ำ · บริการ 1–5 · แผนที่', 'สรุปความขุ่น', '#eff6ff', '#1d4ed8'),
+        item('⚡', 'ความนำไฟฟ้า (EC)', 'ค่าความนำไฟฟ้า / ความเค็ม', 'สรุป EC', '#fefce8', '#a16207'),
+      ] },
+    },
+  };
+  return lineReply(replyToken, [{ ...flex, quickReply: { items: [
+    { type: 'action', action: { type: 'message', label: '🧪 คลอรีน', text: 'สรุปคลอรีน' } },
+    { type: 'action', action: { type: 'message', label: '💧 ความขุ่น', text: 'สรุปความขุ่น' } },
+    { type: 'action', action: { type: 'message', label: '⚡ ความนำไฟฟ้า', text: 'สรุป EC' } },
+  ] } }]);
+}
+
 const turRegionBtn = (r, i, dayOffset) => ({ type: 'button', style: 'primary', height: 'sm', color: r.col, flex: 1,
   action: { type: 'message', label: r.name, text: `ขุ่นบริการ ${i + 1}${dayOffset < 0 ? ' เมื่อวาน' : ''}` } });
 
@@ -1608,9 +1647,9 @@ async function replyTurbiditySummary(replyToken, dayOffset = 0) {
       ] },
       { type: 'separator', margin: 'sm' },
       makeStatRow('ความขุ่นเฉลี่ย', `${avgAll.toFixed(2)} NTU`),
-      makeStatRow('สูงสุด / ต่ำสุด', `${f2(S[maxId].max)} / ${f2(S[minId].min)} NTU`),
+      makeStatRow('ค่าสูงสุด', `${f2(S[maxId].max)} NTU`),
       { type: 'separator', margin: 'sm' },
-      bigBlock(IMAGES.iconSend, 'น้ำออกจากโรงงานผลิตน้ำ', '#dbeafe', 'เฉลี่ย · สูงสุด', [
+      bigBlock(IMAGES.iconSend, 'โรงงานผลิตน้ำ', '#dbeafe', 'เฉลี่ย · สูงสุด', [
         { type: 'box', layout: 'horizontal', spacing: 'xs', contents: TUR_PLANTS.map(plantCell) },
       ]),
       bigBlock(IMAGES.iconMonitor, 'น้ำในระบบจ่าย', '#ede9fe', 'เฉลี่ย · สูงสุด', [
@@ -2712,6 +2751,100 @@ app.post('/webhook', async (req, res) => {
 });
 
 // Health check
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🧩 Rich menu: เปลี่ยนช่อง "FRC Report" → "รายงานคุณภาพน้ำ" (ใช้รูปเมนูปัจจุบันจาก LINE แล้ววาดช่องใหม่ทับ)
+//   GET /richmenu/current.png            — รูปเมนูที่ใช้อยู่
+//   GET /richmenu/preview.png            — ตัวอย่างหลังแทนช่อง (ยังไม่เปลี่ยนจริง)
+//   GET /richmenu/apply?key=...          — สร้างเมนูใหม่ + ตั้งเป็นค่าเริ่มต้น (ช่องนั้นส่ง "รายงานคุณภาพน้ำ")
+//   GET /richmenu/rollback?key=...&id=…  — กลับไปใช้เมนูเดิม
+//   key = ตัวแปร ADMIN_KEY ใน Railway (ถ้าไม่ตั้ง ใช้ 'piphat')
+// ═══════════════════════════════════════════════════════════════════════════════
+const RM_KEY = process.env.ADMIN_KEY || 'piphat';
+const lineAuth = { Authorization: `Bearer ${LINE_TOKEN}` };
+async function rmCurrent() {
+  const d = await axios.get('https://api.line.me/v2/bot/user/all/richmenu', { headers: lineAuth });
+  const id = d.data.richMenuId;
+  const [obj, img] = await Promise.all([
+    axios.get(`https://api.line.me/v2/bot/richmenu/${id}`, { headers: lineAuth }),
+    axios.get(`https://api-data.line.me/v2/bot/richmenu/${id}/content`, { headers: lineAuth, responseType: 'arraybuffer' }),
+  ]);
+  return { id, menu: obj.data, image: Buffer.from(img.data), type: img.headers['content-type'] };
+}
+function rmTargetArea(menu) {
+  let i = menu.areas.findIndex(a => /คลอรีน|frc/i.test((a.action && (a.action.text || a.action.label || a.action.uri)) || ''));
+  if (i < 0) i = menu.areas.findIndex(a => { const b = a.bounds, x = menu.size.width * 0.75, y = menu.size.height * 0.25;
+    return x >= b.x && x < b.x + b.width && y >= b.y && y < b.y + b.height; });
+  return i;
+}
+function rmDrawTile(c, W, H) {   // ช่อง "รายงานคุณภาพน้ำ" (ออกแบบที่ 1250×843 แล้ว scale)
+  c.save(); c.scale(W / 1250, H / 843);
+  const g = c.createLinearGradient(0, 0, 1250, 843); g.addColorStop(0, '#0f172a'); g.addColorStop(0.5, '#1e293b'); g.addColorStop(1, '#0b1220');
+  c.fillStyle = g; c.fillRect(0, 0, 1250, 843);
+  const cols = ['#14b8a6', '#3b82f6', '#f59e0b']; let x = 70, seed = 7; const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  for (let i = 0; i < 26; i++) { const h = 180 + rnd() * 300; c.globalAlpha = 0.16; c.fillStyle = cols[i % 3]; c.fillRect(x, 843 - 120 - h, 30, h); x += 43; }
+  c.globalAlpha = 1; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+  c.fillStyle = '#94a3b8'; c.font = '26px TurSarabun'; c.fillText('E X E C U T I V E   S U M M A R Y', 625, 150);
+  c.fillStyle = '#ffffff'; c.font = '78px TurSarabunBold'; c.fillText('Water Quality Report', 625, 240);
+  c.fillStyle = '#93a4bd'; c.font = '30px TurSarabun'; c.fillText('FRC · Turbidity · EC', 625, 290);
+  { const P = [['คลอรีนอิสระคงเหลือ', '#34d399'], ['ความขุ่น', '#60a5fa'], ['ความนำไฟฟ้า', '#fbbf24']], GAP = 64;
+    c.font = '40px TurSarabunBold'; c.textAlign = 'left';
+    const ws = P.map(([t]) => c.measureText(t).width), tot = ws.reduce((a, b) => a + b, 0) + GAP * 2;
+    let px = 625 - tot / 2;
+    P.forEach(([t, col], i) => {
+      c.fillStyle = col; c.fillText(t, px, 395); px += ws[i];
+      if (i < 2) { c.fillStyle = '#475569'; c.fillRect(px + GAP / 2 - 1, 352, 2, 58); px += GAP; }
+    });
+    c.textAlign = 'center'; }
+  c.textAlign = 'left'; c.fillStyle = '#e11d48'; c.fillRect(60, 620, 64, 6);
+  c.save(); c.transform(1, 0, -0.18, 1, 0, 0); c.fillStyle = '#ffffff'; c.font = '74px TurSarabunBold'; c.fillText('รายงานคุณภาพน้ำ', 60 + 0.18 * 715, 715); c.restore();
+  c.fillStyle = '#e2e8f0'; c.font = '30px TurSarabun'; c.fillText('คลอรีนอิสระคงเหลือ · ความขุ่น · ความนำไฟฟ้า', 62, 762);
+  c.fillStyle = '#cbd5e1'; c.font = '26px TurSarabun'; c.fillText('แตะเพื่อเลือกรายงาน', 62, 800);
+  const a = c.createLinearGradient(0, 0, 1250, 0); a.addColorStop(0, '#3b82f6'); a.addColorStop(1, '#34d399'); c.fillStyle = a; c.fillRect(0, 837, 1250, 6);
+  c.restore();
+}
+async function rmComposite() {
+  if (!TUR_CANVAS) throw new Error('@napi-rs/canvas ไม่พร้อม');
+  await turEnsureFont();
+  const cur = await rmCurrent();
+  const ai = rmTargetArea(cur.menu); if (ai < 0) throw new Error('หาช่อง FRC Report ในเมนูไม่เจอ');
+  const b = cur.menu.areas[ai].bounds, { width: W, height: H } = cur.menu.size;
+  const cv = TUR_CANVAS.createCanvas(W, H), c = cv.getContext('2d');
+  c.drawImage(await TUR_CANVAS.loadImage(cur.image), 0, 0, W, H);
+  c.save(); c.translate(b.x, b.y); c.beginPath(); c.rect(0, 0, b.width, b.height); c.clip(); rmDrawTile(c, b.width, b.height); c.restore();
+  let q = 90, jpg = cv.toBuffer('image/jpeg', q);
+  while (jpg.length > 1000000 && q > 50) { q -= 10; jpg = cv.toBuffer('image/jpeg', q); }   // LINE จำกัด 1 MB
+  return { cur, ai, jpg };
+}
+app.get('/richmenu/current.png', async (req, res) => {
+  try { const cur = await rmCurrent(); res.set('Content-Type', cur.type || 'image/png').send(cur.image); }
+  catch (e) { res.status(500).send('อ่านเมนูไม่ได้ (อาจสร้างใน OA Manager ไม่ใช่ API): ' + (e.response ? JSON.stringify(e.response.data) : e.message)); }
+});
+app.get('/richmenu/preview.png', async (req, res) => {
+  try { const r = await rmComposite(); res.set('Content-Type', 'image/jpeg').send(r.jpg); }
+  catch (e) { res.status(500).send('preview error: ' + (e.response ? JSON.stringify(e.response.data) : e.message)); }
+});
+app.get('/richmenu/apply', async (req, res) => {
+  if (req.query.key !== RM_KEY) return res.status(403).send('key ไม่ถูกต้อง');
+  try {
+    const { cur, ai, jpg } = await rmComposite();
+    const m = cur.menu;
+    const areas = m.areas.map((a, i) => i === ai ? { bounds: a.bounds, action: { type: 'message', label: 'รายงานคุณภาพน้ำ', text: 'รายงานคุณภาพน้ำ' } } : { bounds: a.bounds, action: a.action });
+    const body = { size: m.size, selected: m.selected, name: 'water-quality-menu', chatBarText: m.chatBarText, areas };
+    const cr = await axios.post('https://api.line.me/v2/bot/richmenu', body, { headers: { ...lineAuth, 'Content-Type': 'application/json' } });
+    const newId = cr.data.richMenuId;
+    await axios.post(`https://api-data.line.me/v2/bot/richmenu/${newId}/content`, jpg, { headers: { ...lineAuth, 'Content-Type': 'image/jpeg' }, maxBodyLength: Infinity });
+    await axios.post(`https://api.line.me/v2/bot/user/all/richmenu/${newId}`, {}, { headers: lineAuth });
+    console.log(`[RichMenu] เปลี่ยนช่อง "${(m.areas[ai].action || {}).label || ai}" → รายงานคุณภาพน้ำ | ใหม่ ${newId} | เดิม ${cur.id}`);
+    res.json({ ok: true, newId, oldId: cur.id, rollback: `/richmenu/rollback?key=${RM_KEY}&id=${cur.id}` });
+  } catch (e) { console.error('[RichMenu] apply error:', e.response ? e.response.data : e); res.status(500).send('apply error: ' + (e.response ? JSON.stringify(e.response.data) : e.message)); }
+});
+app.get('/richmenu/rollback', async (req, res) => {
+  if (req.query.key !== RM_KEY) return res.status(403).send('key ไม่ถูกต้อง');
+  try { await axios.post(`https://api.line.me/v2/bot/user/all/richmenu/${req.query.id}`, {}, { headers: lineAuth }); res.json({ ok: true, defaultRichMenu: req.query.id }); }
+  catch (e) { res.status(500).send('rollback error: ' + (e.response ? JSON.stringify(e.response.data) : e.message)); }
+});
+
 // 🗺️ รูปแผนที่ความขุ่น (hero ของการ์ด LINE) — ?d=0 วันนี้ / ?d=-1 เมื่อวาน
 app.get('/turbidity-map.png', async (req, res) => {
   try {
