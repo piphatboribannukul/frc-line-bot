@@ -2876,9 +2876,14 @@ function runECForecast() {
   p.on('error', err => console.error(`[EC-Forecast] ❌ spawn error: ${err.message}`));
 }
 
-// รันครั้งแรกหลัง start 2 นาที (รอ server พร้อม) แล้วทุกชั่วโมงนาทีที่ 5
-setTimeout(runECForecast, 2 * 60 * 1000);
-cron.schedule('5 * * * *', runECForecast, { timezone: 'Asia/Bangkok' });
+// [ปิด ต.ค.69] เลิกใช้ XGBoost แล้ว (ไม่ได้แสดงผลที่ใด) — เปิดกลับได้โดยตั้งตัวแปร EC_FORECAST=on ใน Railway
+// (การเก็บ /history_ec ทุกชั่วโมงด้านล่างยังทำงานตามปกติ — ใช้วิเคราะห์เวลาเดินน้ำ/EC ย้อนหลัง)
+if (process.env.EC_FORECAST === 'on') {
+  setTimeout(runECForecast, 2 * 60 * 1000);
+  cron.schedule('5 * * * *', runECForecast, { timezone: 'Asia/Bangkok' });
+} else {
+  console.log('[EC-Forecast] ปิดอยู่ (ตั้ง EC_FORECAST=on เพื่อเปิด)');
+}
 
 // [v12.3] เปลี่ยนจากตรวจทุก 1 ชม. → ตรวจวันละครั้ง แล้วรวมทุกสถานีผิดปกติส่งเป็น broadcast เดียว (ประหยัด broadcast quota)
 // [29/08/69] แจ้งเตือนวาระเปลี่ยนเซ็นเซอร์/อุปกรณ์ ทุกวันที่ 1 เวลา 08:00
