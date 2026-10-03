@@ -2382,7 +2382,7 @@ function parseThaiTime(str) {
 const _num = v => { const x = parseFloat(v); return isNaN(x) ? null : x; };
 const _okTs = ts => !isNaN(ts) && ts > Date.now() - 7 * 86400000 && ts < Date.now() + 15 * 60000;
 
-// ── 1. TWQMS: FRC + EC ทุกสถานี → history/{สถานี}/{ts} + live ──────────────────
+// ── 1. TWQMS: FRC + EC ทุกสถานี → history/{สถานี}/{ts} + live | ความขุ่น → history_wq/{สถานี}/{ts} ──────────────────
 const _lastTwqmsTs = {};   // สถานี → ts ล่าสุดที่บันทึกแล้ว (กันเขียนซ้ำ)
 async function collectTwqms() {
   try {
@@ -2390,7 +2390,7 @@ async function collectTwqms() {
     const raw = res.data;
     const arr = Array.isArray(raw) ? raw : (raw.data || raw.stations || raw.result || []);
     const updates = {}, live = {};
-    let nNew = 0, srcLabel = '';
+    let nNew = 0, nTub = 0, srcLabel = '';
     for (const st of arr) {
       const id = st.stationCode || st.id;
       if (!id) continue;
@@ -2398,16 +2398,19 @@ async function collectTwqms() {
       const ts  = parseThaiTime(st.sourceDtm);
       const frc = _num(st.value && st.value.frc_2);
       const ec  = _num(st.value && st.value.ecm_5);
-      if (!_okTs(ts) || (frc == null && ec == null)) continue;
-      live[safeId] = { frc: frc ?? 0, ec, ts };
+      const tub = _num(st.value && st.value.tub_1);               // ความขุ่น (NTU)
+      if (!_okTs(ts) || (frc == null && ec == null && tub == null)) continue;
+      if (frc != null || ec != null) live[safeId] = { frc: frc ?? 0, ec, ts };   // สถานีที่มีแต่ความขุ่น ไม่ใส่ live (กัน FRC=0 ปลอม)
       if (_lastTwqmsTs[safeId] === ts) continue;                 // ยังเป็นรอบเดิม
-      updates[`history/${safeId}/${ts}`] = { frc, ec, ts };
+      if (frc != null || ec != null) updates[`history/${safeId}/${ts}`] = { frc, ec, ts };
+      // ความขุ่นแยกไว้นอก history/ — FRCContour โหลด history ทั้ง node จึงไม่ต้องดาวน์โหลดส่วนนี้
+      if (tub != null) { updates[`history_wq/${safeId}/${ts}`] = { tub, ts }; nTub++; }
       _lastTwqmsTs[safeId] = ts; nNew++; srcLabel = st.sourceDtm;
     }
     if (nNew) {
       updates['live'] = live;                                    // อัปเดต live เฉพาะเมื่อมีรอบใหม่
       await db.ref().update(updates);                            // เขียนครั้งเดียวทั้งชุด
-      console.log(`[Collect] TWQMS รอบ ${srcLabel} → บันทึก ${nNew} สถานี`);
+      console.log(`[Collect] TWQMS รอบ ${srcLabel} → บันทึก ${nNew} สถานี (ขุ่น ${nTub})`);
     }
   } catch (e) { console.error('[Collect] TWQMS error:', e.message); }
 }
