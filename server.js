@@ -405,6 +405,7 @@ function quickReplyItems(subset) {
     chlorine: { type: 'action', action: { type: 'message', label: '💧 คลอรีน', text: 'คลอรีน' } },
     daily:    { type: 'action', action: { type: 'message', label: '📊 สรุปวัน', text: 'สรุปวัน' } },
     ec:       { type: 'action', action: { type: 'message', label: '⚡ EC', text: 'ec' } },
+    turb:     { type: 'action', action: { type: 'message', label: '🌫️ ความขุ่น', text: 'สรุปความขุ่น' } },
     table:    { type: 'action', action: { type: 'message', label: '📋 ตาราง', text: 'ตารางวัน' } },
     low:      { type: 'action', action: { type: 'message', label: '🔴 สถานีต่ำ', text: 'สถานีต่ำ' } },
     send:     { type: 'action', action: { type: 'message', label: '🏭 สูบส่ง', text: 'ดูสูบส่ง' } },
@@ -412,7 +413,7 @@ function quickReplyItems(subset) {
     monitor:  { type: 'action', action: { type: 'message', label: '📡 Monitor', text: 'ดู monitor' } },
     help:     { type: 'action', action: { type: 'message', label: '❓ วิธีใช้', text: 'help' } },
   };
-  const keys = subset || ['search', 'location', 'map', 'chlorine', 'daily', 'ec'];
+  const keys = subset || ['search', 'location', 'map', 'chlorine', 'daily', 'turb', 'ec'];
   return { items: keys.map(k => ALL[k]).filter(Boolean) };
 }
 
@@ -816,6 +817,11 @@ async function handleTextMessage(replyToken, text, userId, sourceType = 'user') 
   if (/^ส่งแจ้งเตือน|^send alert/i.test(msg)) {
     return handleSendAlert(replyToken);
   }
+
+  // ── สรุปความขุ่น (ต้องเช็คก่อน "สรุป" ทั่วไป)
+  { const m = msg.match(/ขุ่น\s*บริการ\s*([1-5])/); if (m) return replyTurbidityRegion(replyToken, Number(m[1]) - 1, /เมื่อวาน/.test(msg) ? -1 : 0); }
+  if (/ขุ่น.*เมื่อวาน|เมื่อวาน.*ขุ่น/.test(msg)) return replyTurbiditySummary(replyToken, -1);
+  if (/^(สรุป)?\s*(ความ)?ขุ่น(วันนี้)?$|^turbidity$/i.test(msg.trim())) return replyTurbiditySummary(replyToken, 0);
 
   // ── สรุปวัน / สรุป / daily / รายงาน → ทั้งหมดไปสรุปวัน
   if (/สรุปวัน|สรุป|daily|ประจำวัน|รายงาน|report|summary/i.test(msg)) {
@@ -1221,8 +1227,8 @@ async function handleSendAlert(replyToken) {
 // - key ของ history = timestamp ms (13 หลัก ยาวเท่ากัน) → orderByKey().startAt() กรองที่ server ได้ ไม่ต้องตั้ง index
 // - คืนค่าหน้าตาเหมือน DataSnapshot (exists / forEach) ฟังก์ชันเดิมจึงทำงานเหมือนเดิมทุกบรรทัด
 async function loadTodayHistorySnap() {
-  const today = new Date(); today.setHours(0,0,0,0);          // สูตรเดียวกับในฟังก์ชันเดิม
-  const startKey = String(today.getTime() - 60 * 60 * 1000);  // เผื่อ 1 ชม. (ฟังก์ชันเดิมกรอง ts อีกชั้น)
+  // [แก้ ต.ค.69] เที่ยงคืน 'เวลาไทย' — server Railway เป็น UTC, setHours(0) เดิมได้ 07:00 น. ไทย
+  const startKey = String(bkkMidnight() - 60 * 60 * 1000);  // เผื่อ 1 ชม. (ฟังก์ชันเดิมกรอง ts อีกชั้น)
   const liveSnap = await db.ref('live').once('value');
   const codes = Object.keys(liveSnap.val() || {});
   const results = await Promise.all(codes.map(code =>
@@ -1241,8 +1247,7 @@ async function handleBroadcastDaily(replyToken) {
   try {
     const snap = await loadTodayHistorySnap();   // [ประหยัดดาวน์โหลด] เดิมโหลด history ทั้งก้อน 7 วัน
     if (!snap.exists()) { if (replyToken) await lineReply(replyToken, withQuickReply([{type:'text',text:'❌ ไม่พบข้อมูลประวัติ'}])); return; }
-    const today = new Date(); today.setHours(0,0,0,0);
-    const todayMs = today.getTime();
+    const todayMs = bkkMidnight();   // [แก้ ต.ค.69] เที่ยงคืนเวลาไทย (เดิม setHours(0) บน UTC = 07:00 น. ไทย)
     const stationReadings = {};
     snap.forEach(cs => {
       const code = cs.key; if (code.startsWith('_')) return;
@@ -1272,6 +1277,245 @@ async function handleBroadcastDaily(replyToken) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🌫️ สรุปความขุ่น (TWQMS tub_1 จาก history_wq ที่ collector บันทึกทุก 15 นาที)
+// คำสั่ง: "สรุปความขุ่น" / "สรุปขุ่น" / "ความขุ่น" = วันนี้ 0.00 น.–ปัจจุบัน
+//         "ขุ่นเมื่อวาน" / "สรุปความขุ่นเมื่อวาน" = เมื่อวานทั้งวัน
+// จัดกลุ่มเหมือน report_turbidity.html: น้ำออก 4 โรงงาน + 5 ภาค (บริการ 1–5)
+// เกณฑ์: เขียว ≤ 4.00 · เหลือง > 4.00–5.00 · แดง > 5.00 NTU
+// ═══════════════════════════════════════════════════════════════════════════════
+const TUR_STATIONS = {"SP01":["สถานีสูบส่งน้ำบางเขน 1 (TR1)","ประชาชื่น"],"SW01":["สถานีสูบจ่ายน้ำลุมพินี","แม้นศรี"],"SM02":["สำนักงานประปาสาขาทุ่งมหาเมฆ","ทุ่งมหาเมฆ"],"SW11":["สถานีสูบจ่ายน้ำพหลโยธิน","พญาไท"],"SP02":["สถานีสูบส่งน้ำบางเขน 2 (TR2)","ประชาชื่น"],"SW02":["สถานีสูบจ่ายน้ำลาดพร้าว","ลาดพร้าว"],"S008":["บริษัท โอสถสภา จำกัด (มหาชน)","สุขุมวิท"],"S009":["สถานคุ้มครองและพัฒนาอาชีพบ้านเกร็ดตระการ","ลาดพร้าว"],"SW03":["สถานีสูบจ่ายน้ำคลองเตย","สุขุมวิท"],"S010":["ศูนย์วิทยาศาสตร์เพื่อการศึกษาแห่งชาติ","สุขุมวิท"],"SM03":["สำนักงานประปาสาขาสุขุมวิท-พระโขนง","พระโขนง"],"SW04":["สถานีสูบจ่ายน้ำสำโรง","พระโขนง"],"S011":["บริษัท ศิครินทร์ จำกัด (มหาชน) (โรงพยาบาลศิครินทร์)","พระโขนง"],"S012":["โรงเรียนหาดอมราอักษรลักษณ์วิทยา","สมุทรปราการ"],"S013":["บริษัท เอจีซี แฟลทกลาส (ประเทศไทย) จำกัด (มหาชน)","สุขสวัสดิ์"],"SM04":["สำนักงานประปาสาขาสมุทรปราการ","สมุทรปราการ"],"S014":["โรงไฟฟ้าพระนครใต้","สมุทรปราการ"],"SP03":["สถานีสูบส่งน้ำบางเขน 3 (TR3)","ประชาชื่น"],"SW05":["สถานีสูบจ่ายน้ำมีนบุรี","มีนบุรี"],"S015":["บริษัท มหาจักรออโตพาร์ท จำกัด","มีนบุรี"],"SM05":["สำนักงานประปาสาขามีนบุรี","มีนบุรี"],"S016":["นิคมอุตสาหกรรมบางชัน","มีนบุรี"],"S017":["ศูนย์ไตเทียมเทียนฟ้าประชาการุณย์","มีนบุรี"],"SW06":["สถานีสูบจ่ายน้ำลาดกระบัง","สุวรรณภูมิ"],"S019":["บริษัท ท่าอากาศยานไทย มหาชน จำกัด (สุวรรณภูมิ)","สุวรรณภูมิ"],"S018":["นิคมอุตสาหกรรมลาดกระบัง","สุวรรณภูมิ"],"S020":["มหาวิทยาลัยหัวเฉียวเฉลิมพระเกียรติ (วิทยาเขตบางพลี)","สุวรรณภูมิ"],"SW07":["สถานีสูบจ่ายน้ำบางพลี","สมุทรปราการ"],"S021":["นิคมอุตสาหกรรมบางพลี","สมุทรปราการ"],"S022":["สถานีตำรวจภูธรคลองด่าน","สมุทรปราการ"],"S023":["นิคมอุตสาหกรรมบางปู","สมุทรปราการ"],"SP04":["สถานีสูบจ่ายน้ำบางเขน 1 (Dis1)","ประชาชื่น"],"SM01":["สำนักงานประปาสาขานนทบุรี","นนทบุรี"],"S003":["กองพันทหารสื่อสาร กองบัญชาการกองทัพไทย","ประชาชื่น"],"S002":["โรงเรียนทหารขนส่ง กรมการขนส่งทหารบก","นนทบุรี"],"SP05":["สถานีสูบจ่ายน้ำบางเขน 2 (Dis2)","ประชาชื่น"],"S005":["โรงพยาบาลซีจีเอช สายไหม","บางเขน"],"S004":["โรงพยาบาลภูมิพลอดุลยเดช","บางเขน"],"SP11":["สถานีสูบส่งน้ำมหาสวัสดิ์","ประชาชื่น"],"SW08":["สถานีสูบจ่ายน้ำราษฎร์บูรณะ","ตากสิน"],"S026":["ม.เทคโนโลยีพระจอมเกล้าธนบุรี (วิทยาเขตบางขุนเทียน)","ตากสิน"],"S025":["ศูนย์กีฬาเฉลิมพระเกียรติ","สุขสวัสดิ์"],"SW09":["สถานีสูบจ่ายน้ำเพชรเกษม","ภาษีเจริญ"],"S027":["มหาวิทยาลัยเอเชียอาคเนย์","ภาษีเจริญ"],"S028":["เรือนจำพิเศษธนบุรี","ภาษีเจริญ"],"SW10":["สถานีสูบจ่ายน้ำท่าพระ","บางกอกน้อย"],"S033":["โรงพยาบาลสมเด็จพระปิ่นเกล้า กรมแพทย์ทหารเรือ","ตากสิน"],"S024":["ศูนย์พัฒนาการจัดสวัสดิการสังคมผู้สูงอายุบ้านบางแค (บ้านพักคนชราบางแค)","ภาษีเจริญ"],"SP12":["สถานีสูบจ่ายน้ำมหาสวัสดิ์","มหาสวัสดิ์"],"S029":["โรงเรียนบดินทรเดชา (สิงห์ สิงหเสนี) นนทบุรี","มหาสวัสดิ์"],"S032":["โรงเรียนตั้งพิรุฬห์ธรรม","บางกอกน้อย"],"SM06":["สำนักงานประปาสาขาบางบัวทอง","บางบัวทอง"],"S030":["โรงเรียนราชวินิต นนทบุรี","มหาสวัสดิ์"],"S001":["โรงเรียนเตรียมอุดมศึกษาน้อมเกล้า นนทบุรี","บางบัวทอง"],"S031":["สถานีตำรวจภูธรไทรน้อย","บางบัวทอง"],"SP06":["โรงงานผลิตน้ำธนบุรี","บางกอกน้อย"],"S007":["โรงพยาบาลศิริราช","บางกอกน้อย"],"SP07":["โรงงานผลิตน้ำสามเสน 1","พญาไท"],"SP08":["โรงงานผลิตน้ำสามเสน 2","พญาไท"],"SP09":["โรงงานผลิตน้ำสามเสน 3","พญาไท"],"S006":["พระราชวังดุสิต สวนจิตรลดา","แม้นศรี"],"SP10":["โรงงานผลิตน้ำสามเสน 4","พญาไท"]};   // id → [ชื่อ, สาขา] (สาขาจากขอบเขต MWADistrict ของ TWQMS)
+const TUR_PLANTS = [
+  { name: 'รง.บางเขน',     ids: ['SP01','SP02','SP03','SP04','SP05'] },
+  { name: 'รง.มหาสวัสดิ์', ids: ['SP11','SP12'] },
+  { name: 'รง.สามเสน',     ids: ['SP07','SP08','SP09','SP10'] },
+  { name: 'รง.ธนบุรี',      ids: ['SP06'] },
+];
+const TUR_REGIONS = [
+  { name: 'บริการ 1', col: '#d9692b', bg: '#fdf0e8', br: ['สุขุมวิท','พระโขนง','สมุทรปราการ','ทุ่งมหาเมฆ'] },
+  { name: 'บริการ 2', col: '#8e5fc2', bg: '#f3edfa', br: ['แม้นศรี','พญาไท','ลาดพร้าว'] },
+  { name: 'บริการ 3', col: '#2f8fd8', bg: '#e8f2fb', br: ['ประชาชื่น','บางเขน','มีนบุรี','สุวรรณภูมิ'] },
+  { name: 'บริการ 4', col: '#b8901a', bg: '#fbf5e3', br: ['ตากสิน','สุขสวัสดิ์','บางกอกน้อย','ภาษีเจริญ'] },
+  { name: 'บริการ 5', col: '#2fa88a', bg: '#e5f5f0', br: ['นนทบุรี','บางบัวทอง','มหาสวัสดิ์'] },
+];
+const TUR_PLANT_IDS = TUR_PLANTS.flatMap(p => p.ids);
+const TUR_REPORT_URL = 'https://piphatboribannukul.github.io/FRCfirebase/report_turbidity.html';
+const turColor = v => v == null ? '#94a3b8' : v <= 4 ? COLORS.good : v <= 5 ? COLORS.warn : COLORS.bad;
+const turDot   = v => v == null ? '⚪' : v <= 4 ? '🟢' : v <= 5 ? '🟡' : '🔴';
+
+// เที่ยงคืนเวลาไทย (server Railway เป็น UTC — ห้ามใช้ setHours(0) ตรงๆ)
+function bkkMidnight(dayOffset = 0) {
+  const b = new Date(Date.now() + 7 * 3600e3);
+  return Date.UTC(b.getUTCFullYear(), b.getUTCMonth(), b.getUTCDate()) - 7 * 3600e3 + dayOffset * 86400e3;
+}
+
+// อ่าน history_wq ช่วงเวลา → สถิติรายสถานี {avg,max,maxTs,min,n}
+async function loadTurbidityStats(startTs, endTs) {
+  const ids = Object.keys(TUR_STATIONS);
+  const out = {};
+  await Promise.all(ids.map(async id => {
+    try {
+      let q = db.ref(`history_wq/${id}`).orderByKey().startAt(String(startTs));
+      if (endTs) q = q.endAt(String(endTs - 1));
+      const snap = await q.once('value');
+      const v = snap.val() || {};
+      let sum = 0, n = 0, max = null, maxTs = 0, min = null;
+      for (const p of Object.values(v)) {
+        const t = Number(p && p.tub);
+        if (!isFinite(t) || t < 0 || t > 1000) continue;            // ตัดค่าเสีย (-9999 ฯลฯ)
+        sum += t; n++;
+        if (max == null || t > max) { max = t; maxTs = p.ts; }
+        if (min == null || t < min) min = t;
+      }
+      if (n) out[id] = { avg: sum / n, max, maxTs, min, n };
+    } catch (e) { console.error('[Turbidity] load', id, e.message); }
+  }));
+  return out;
+}
+
+function turGroupStats(ids, S) {
+  const d = ids.filter(id => S[id]);
+  if (!d.length) return { avg: null, max: null, n: 0, tot: ids.length };
+  const top = d.reduce((a, b) => (S[b].max > S[a].max ? b : a));
+  return { avg: d.reduce((a, id) => a + S[id].avg, 0) / d.length, max: S[top].max, maxId: top, n: d.length, tot: ids.length };
+}
+const turType = id => SEND_IDS.includes(id) ? 'send' : (PUMP_IDS.includes(id) || id.startsWith('SW') || id.startsWith('SP')) ? 'pump' : 'monitor';
+const turRegionIds = r => Object.keys(TUR_STATIONS).filter(id => r.br.includes(TUR_STATIONS[id][1]) && !TUR_PLANT_IDS.includes(id));
+
+const turRegionBtn = (r, i, dayOffset) => ({ type: 'button', style: 'primary', height: 'sm', color: r.col, flex: 1,
+  action: { type: 'message', label: r.name, text: `ขุ่นบริการ ${i + 1}${dayOffset < 0 ? ' เมื่อวาน' : ''}` } });
+
+// รายละเอียดบริการ N: ทุกสถานีในพื้นที่สาขาของภาค (แยกตามสาขา) — ไม่รวมสถานีน้ำออกโรงงาน
+async function replyTurbidityRegion(replyToken, idx, dayOffset = 0) {
+  try {
+    const r = TUR_REGIONS[idx];
+    if (!r) return lineReply(replyToken, withQuickReply([{ type: 'text', text: 'ไม่พบบริการนี้ (มี บริการ 1–5)' }]));
+    const start = bkkMidnight(dayOffset), end = dayOffset < 0 ? bkkMidnight(dayOffset + 1) : null;
+    const S = await loadTurbidityStats(start, end);
+    const dayLabel = thaiDate(new Date(start + 12 * 3600e3));
+    const ids = turRegionIds(r), g = turGroupStats(ids, S);
+    const f2 = v => v == null ? '–' : v.toFixed(2);
+    const c = { g: 0, y: 0, r: 0 }; ids.forEach(id => { if (S[id]) { const a = S[id].avg; c[a <= 4 ? 'g' : a <= 5 ? 'y' : 'r']++; } });
+    const head = { type: 'box', layout: 'horizontal', margin: 'sm', contents: [
+      { type: 'text', text: 'สถานี', size: 'xxs', color: COLORS.textMuted, flex: 6 },
+      { type: 'text', text: 'เฉลี่ย', size: 'xxs', color: COLORS.textMuted, flex: 2, align: 'end' },
+      { type: 'text', text: 'สูงสุด', size: 'xxs', color: COLORS.textMuted, flex: 2, align: 'end' } ] };
+    const stRow = id => { const d = S[id], nm = TUR_STATIONS[id][0];
+      return { type: 'box', layout: 'horizontal', paddingTop: '3px', paddingBottom: '3px', contents: [
+        { type: 'text', text: `${turDot(d && d.avg)} ${nm}`, size: 'xs', color: COLORS.textPrimary, flex: 6, wrap: true },
+        { type: 'text', text: d ? f2(d.avg) : '–', size: 'xs', weight: 'bold', color: turColor(d && d.avg), flex: 2, align: 'end', gravity: 'center' },
+        { type: 'text', text: d ? f2(d.max) : '–', size: 'xs', weight: 'bold', color: turColor(d && d.max), flex: 2, align: 'end', gravity: 'center' },
+      ] }; };
+    const body = [
+      { type: 'box', layout: 'horizontal', paddingAll: '10px', cornerRadius: '8px', backgroundColor: r.bg, contents: [
+        { type: 'box', layout: 'vertical', flex: 0, width: '44px', height: '44px', cornerRadius: '12px', backgroundColor: r.col, justifyContent: 'center', alignItems: 'center',
+          contents: [{ type: 'text', text: String(idx + 1), size: 'xl', weight: 'bold', color: '#ffffff', align: 'center' }] },
+        { type: 'box', layout: 'vertical', flex: 5, margin: 'md', contents: [
+          { type: 'box', layout: 'horizontal', contents: [
+            { type: 'text', text: `เฉลี่ย ${f2(g.avg)}`, size: 'md', weight: 'bold', color: turColor(g.avg), flex: 0 },
+            { type: 'text', text: ` · สูงสุด ${f2(g.max)} NTU`, size: 'xs', color: turColor(g.max), flex: 0, gravity: 'bottom' } ] },
+          { type: 'text', text: `🟢${c.g} 🟡${c.y} 🔴${c.r}  ·  มีข้อมูล ${g.n}/${g.tot} สถานี`, size: 'xxs', color: COLORS.textSecondary },
+        ] },
+      ] },
+      head,
+    ];
+    r.br.forEach(b => {
+      const list = ids.filter(id => TUR_STATIONS[id][1] === b);
+      if (!list.length) return;
+      body.push({ type: 'text', text: `▸ สาขา${b}`, size: 'sm', weight: 'bold', color: r.col, margin: 'md' });
+      body.push({ type: 'separator', color: r.col });
+      list.forEach(id => body.push(stRow(id)));
+    });
+    body.push({ type: 'text', text: 'เกณฑ์ 🟢 ≤4 · 🟡 >4–5 · 🔴 >5 NTU · ⚪ ไม่มีข้อมูล', size: 'xxs', color: COLORS.textMuted, margin: 'md', wrap: true });
+    const back = dayOffset < 0 ? 'ขุ่นเมื่อวาน' : 'สรุปความขุ่น';
+    return lineReply(replyToken, withQuickReply([{
+      type: 'flex', altText: `🌫️ ความขุ่น ${r.name} ${dayLabel} — เฉลี่ย ${f2(g.avg)} สูงสุด ${f2(g.max)} NTU`,
+      contents: { type: 'bubble', size: 'mega',
+        header: makeHeader(`🌫️ ความขุ่น — ${r.name}`, dayOffset < 0 ? `${dayLabel} (ทั้งวัน)` : `${dayLabel} · 0.00 – ${thaiTime()} น.`, COLORS.headerDark, IMAGES.logo),
+        body: { type: 'box', layout: 'vertical', paddingAll: '10px', paddingTop: '8px', contents: body },
+        footer: { type: 'box', layout: 'vertical', paddingAll: '6px', spacing: 'xs', contents: [
+          { type: 'box', layout: 'horizontal', spacing: 'xs', contents: TUR_REGIONS.map((x, i) => ({ type: 'button', style: i === idx ? 'secondary' : 'primary', height: 'sm', color: i === idx ? undefined : x.col, flex: 1,
+            action: { type: 'message', label: String(i + 1), text: `ขุ่นบริการ ${i + 1}${dayOffset < 0 ? ' เมื่อวาน' : ''}` } })) },
+          { type: 'button', style: 'primary', height: 'sm', color: '#0f172a', action: { type: 'message', label: '↩ กลับภาพรวมความขุ่น', text: back } },
+        ] },
+      },
+    }]));
+  } catch (err) {
+    console.error('[Turbidity] region error:', err);
+    return lineReply(replyToken, withQuickReply([{ type: 'text', text: '❌ ความขุ่นรายบริการ error: ' + err.message }]));
+  }
+}
+
+async function replyTurbiditySummary(replyToken, dayOffset = 0) {
+  try {
+    const start = bkkMidnight(dayOffset), end = dayOffset < 0 ? bkkMidnight(dayOffset + 1) : null;
+    const S = await loadTurbidityStats(start, end);
+    const dayLabel = thaiDate(new Date(start + 12 * 3600e3));   // เที่ยงวันของวันนั้น (กันข้ามวันจาก timezone)
+    if (!Object.keys(S).length)
+      return lineReply(replyToken, withQuickReply([{ type: 'text', text: `🌫️ ยังไม่มีข้อมูลความขุ่น${dayOffset < 0 ? 'ของเมื่อวาน' : 'สะสมวันนี้'}\n(เริ่มเก็บข้อมูลความขุ่นตั้งแต่ 3 ต.ค. 69 16:12 น.)` }]));
+
+    const all = Object.keys(TUR_STATIONS), has = all.filter(id => S[id]);
+    const cls = v => v == null ? 'na' : v <= 4 ? 'g' : v <= 5 ? 'y' : 'r';
+    const cnt = ids => { const c = { g: 0, y: 0, r: 0, n: ids.length }; ids.forEach(id => { if (S[id]) c[cls(S[id].avg)]++; }); return c; };
+    const C = cnt(all), total = has.length;
+    const pct = total ? Math.round(C.g / total * 100) : 0;
+    let oe, ot, ob;
+    if (C.r === 0 && C.y === 0) { oe = '🟢'; ot = 'ดี'; ob = '#ecfdf5'; }
+    else if (C.r === 0)         { oe = '🟡'; ot = 'เฝ้าระวัง'; ob = '#fffbeb'; }
+    else                        { oe = '🔴'; ot = 'ต้องติดตาม'; ob = '#fef2f2'; }
+    const avgAll = has.reduce((a, id) => a + S[id].avg, 0) / total;
+    const maxId = has.reduce((a, id) => S[id].max > S[a].max ? id : a, has[0]);
+    const minId = has.reduce((a, id) => S[id].min < S[a].min ? id : a, has[0]);
+    const f2 = v => v == null ? '–' : v.toFixed(2);
+    const exceed = has.filter(id => S[id].max > 4).sort((a, b) => S[b].max - S[a].max);
+
+    // ช่องสี่เหลี่ยมเล็ก: น้ำออกจากโรงงาน 4 แห่ง
+    const plantBox = p => { const g = turGroupStats(p.ids, S); return {
+      type: 'box', layout: 'vertical', flex: 1, alignItems: 'center', paddingAll: '5px', cornerRadius: '6px', backgroundColor: COLORS.bgCard,
+      contents: [
+        { type: 'text', text: f2(g.avg), size: 'md', weight: 'bold', color: turColor(g.avg), align: 'center' },
+        { type: 'text', text: p.name.replace('รง.', ''), size: 'xxs', color: COLORS.textSecondary, align: 'center' },
+        { type: 'text', text: `สูงสุด ${f2(g.max)}`, size: 'xxs', color: turColor(g.max), align: 'center' },
+      ] }; };
+
+    // บล็อก สูบส่ง / สูบจ่าย / Monitor (รูปแบบเดียวกับการ์ดคลอรีน)
+    const typeRow = (icon, label, t, bg) => {
+      const ids = all.filter(id => turType(id) === t), g = turGroupStats(ids, S), c = cnt(ids);
+      return {
+        type: 'box', layout: 'horizontal', margin: 'xs', paddingAll: '8px', paddingStart: '10px', cornerRadius: '8px', backgroundColor: bg,
+        contents: [
+          { type: 'box', layout: 'vertical', flex: 0, width: '56px', height: '56px', justifyContent: 'center', alignItems: 'center',
+            contents: [{ type: 'image', url: icon, size: '56px', aspectMode: 'fit', aspectRatio: '1:1' }] },
+          { type: 'box', layout: 'vertical', flex: 5, margin: 'md', justifyContent: 'center', contents: [
+            { type: 'box', layout: 'horizontal', contents: [
+              { type: 'text', text: label, size: 'sm', weight: 'bold', color: COLORS.textPrimary, flex: 3 },
+              { type: 'text', text: f2(g.avg), size: 'md', weight: 'bold', color: turColor(g.avg), flex: 0 },
+              { type: 'text', text: ' NTU', size: 'xxs', color: COLORS.textMuted, flex: 0, gravity: 'bottom' },
+            ] },
+            { type: 'text', text: `เขียว≤4  เหลือง>4–5  แดง>5  ·  สูงสุด ${f2(g.max)}`, size: 'xxs', color: COLORS.textMuted },
+            { type: 'text', text: `🟢${c.g} 🟡${c.y} 🔴${c.r}  ·  ${c.n} สถานี`, size: 'xxs', color: COLORS.textSecondary },
+          ] },
+        ],
+      };
+    };
+
+    const body = [
+      { type: 'box', layout: 'horizontal', paddingAll: '10px', cornerRadius: '8px', backgroundColor: ob, contents: [
+        { type: 'text', text: oe, size: 'xl', flex: 0, gravity: 'center' },
+        { type: 'box', layout: 'vertical', flex: 5, margin: 'sm', contents: [
+          { type: 'text', text: `ภาพรวม: ${ot}`, size: 'sm', weight: 'bold', color: COLORS.textPrimary },
+          { type: 'text', text: `ผ่านเกณฑ์ ${C.g}/${total} สถานี (${pct}%)`, size: 'xxs', color: COLORS.textSecondary },
+          makeProgressBar(pct, pct >= 90 ? COLORS.good : pct >= 70 ? COLORS.warn : COLORS.bad),
+        ] },
+      ] },
+      { type: 'box', layout: 'horizontal', margin: 'sm', spacing: 'sm', contents: [
+        makeCountBox('เขียว ≤4', C.g, COLORS.good),
+        makeCountBox('เหลือง >4–5', C.y, COLORS.warn),
+        makeCountBox('แดง >5', C.r, COLORS.bad),
+      ] },
+      { type: 'separator', margin: 'sm' },
+      makeStatRow('ความขุ่นเฉลี่ย', `${avgAll.toFixed(2)} NTU`),
+      makeStatRow('สูงสุด / ต่ำสุด', `${f2(S[maxId].max)} / ${f2(S[minId].min)} NTU`),
+      { type: 'separator', margin: 'sm' },
+      { type: 'text', text: '🏭 น้ำออกจากโรงงานผลิตน้ำ (เฉลี่ย NTU)', size: 'xxs', weight: 'bold', color: COLORS.textSecondary, margin: 'sm' },
+      { type: 'box', layout: 'horizontal', margin: 'xs', spacing: 'xs', contents: TUR_PLANTS.map(plantBox) },
+      { type: 'separator', margin: 'sm' },
+      typeRow(IMAGES.iconSend, 'สูบส่ง', 'send', '#dbeafe'),
+      typeRow(IMAGES.iconPump, 'สูบจ่าย', 'pump', '#d1fae5'),
+      typeRow(IMAGES.iconMonitor, 'Monitor', 'monitor', '#ede9fe'),
+    ];
+    if (exceed.length) {
+      body.push({ type: 'separator', margin: 'xs' });
+      body.push({ type: 'box', layout: 'vertical', margin: 'xs', paddingAll: '8px', cornerRadius: '6px', backgroundColor: COLORS.bgWarm, contents: [
+        { type: 'text', text: `⚠️ ต้องติดตาม — ค่าสูงสุดเกิน 4 NTU (${exceed.length})`, size: 'xxs', weight: 'bold', color: COLORS.bad },
+        ...exceed.slice(0, 5).map(id => ({ type: 'text', size: 'xxs', color: COLORS.textSecondary, wrap: true,
+          text: `${turDot(S[id].max)} ${TUR_STATIONS[id][0].substring(0, 24)} — ${S[id].max.toFixed(2)} NTU (${thaiTime(new Date(S[id].maxTs))} น.)` })),
+      ] });
+    }
+    body.push({ type: 'text', text: `ไม่มีข้อมูล ${all.length - total} สถานี · กดปุ่มบริการ 1–5 เพื่อดูรายสถานี`, size: 'xxs', color: COLORS.textMuted, margin: 'sm', wrap: true });
+
+    const flex = {
+      type: 'flex', altText: `🌫️ ความขุ่น ${dayLabel} — ${oe}${ot} เฉลี่ย ${avgAll.toFixed(2)} NTU`,
+      contents: { type: 'bubble', size: 'mega',
+        header: makeHeader('🌫️ ความขุ่นน้ำประปา (Turbidity)', dayOffset < 0 ? `${dayLabel} (ทั้งวัน)` : `${dayLabel} · 0.00 – ${thaiTime()} น.`, COLORS.headerDark, IMAGES.logo),
+        body: { type: 'box', layout: 'vertical', paddingAll: '10px', paddingTop: '8px', contents: body },
+        footer: { type: 'box', layout: 'vertical', paddingAll: '6px', spacing: 'xs', contents: [
+          { type: 'box', layout: 'horizontal', spacing: 'xs', contents: TUR_REGIONS.slice(0, 3).map((r, i) => turRegionBtn(r, i, dayOffset)) },
+          { type: 'box', layout: 'horizontal', spacing: 'xs', contents: TUR_REGIONS.slice(3).map((r, i) => turRegionBtn(r, i + 3, dayOffset)) },
+          { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [
+            { type: 'button', style: 'primary', height: 'sm', color: COLORS.accent, flex: 1, action: { type: 'uri', label: '📄 รายงานเต็ม', uri: TUR_REPORT_URL } },
+            { type: 'button', style: 'primary', height: 'sm', color: '#0f172a', flex: 1, action: { type: 'message', label: dayOffset < 0 ? 'วันนี้' : 'เมื่อวาน', text: dayOffset < 0 ? 'สรุปความขุ่น' : 'ขุ่นเมื่อวาน' } },
+          ] },
+        ] },
+      },
+    };
+    return lineReply(replyToken, withQuickReply([flex]));
+  } catch (err) {
+    console.error('[Turbidity] summary error:', err);
+    return lineReply(replyToken, withQuickReply([{ type: 'text', text: '❌ สรุปความขุ่น error: ' + err.message }]));
+  }
+}
+
 async function replyDailySummary(replyToken) {
   try {
     const snap = await loadTodayHistorySnap();   // [ประหยัดดาวน์โหลด] เดิมโหลด history ทั้งก้อน 7 วัน
@@ -1279,8 +1523,7 @@ async function replyDailySummary(replyToken) {
       return lineReply(replyToken, withQuickReply([{ type: 'text', text: '❌ ไม่พบข้อมูลประวัติ' }]));
     }
 
-    const today = new Date(); today.setHours(0,0,0,0);
-    const todayMs = today.getTime();
+    const todayMs = bkkMidnight();   // [แก้ ต.ค.69] เที่ยงคืนเวลาไทย (เดิม setHours(0) บน UTC = 07:00 น. ไทย)
     const stationReadings = {};
     snap.forEach(cs => {
       const code = cs.key;
@@ -1607,8 +1850,7 @@ async function replyDailyTableSummary(replyToken) {
     const snap = await loadTodayHistorySnap();   // [ประหยัดดาวน์โหลด] เดิมโหลด history ทั้งก้อน 7 วัน
     if (!snap.exists()) return lineReply(replyToken, withQuickReply([{type:'text',text:'❌ ไม่พบข้อมูลประวัติ'}]));
 
-    const today = new Date(); today.setHours(0,0,0,0);
-    const todayMs = today.getTime();
+    const todayMs = bkkMidnight();   // [แก้ ต.ค.69] เที่ยงคืนเวลาไทย (เดิม setHours(0) บน UTC = 07:00 น. ไทย)
     const stationReadings = {};
     snap.forEach(cs => {
       const code = cs.key;
