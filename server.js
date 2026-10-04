@@ -1591,7 +1591,7 @@ const WQP = {
 };
 // แตะแผนที่ → รายงานเว็บของพารามิเตอร์นั้น (ความขุ่น/EC ดึงข้อมูลชุดเดียวกับบอทเองถ้ายังไม่นำเข้าไฟล์)
 const WQ_WEB = 'https://piphatboribannukul.github.io/FRCfirebase/';
-const wqReportUrl = (pk, d) => pk === 'frc' ? `${WQ_WEB}report_daily.html` : `${WQ_WEB}${pk === 'ec' ? 'report_ec' : 'report_turbidity'}.html?d=${d < 0 ? -1 : 0}`;
+const wqReportUrl = (pk, d) => `${WQ_WEB}${{ frc: 'report_frc', ec: 'report_ec', tub: 'report_turbidity' }[pk] || 'report_turbidity'}.html?d=${d < 0 ? -1 : 0}`;
 const WQ_HEX = { g: '#16a34a', y: '#f59e0b', r: '#dc2626', na: '#94a3b8' };
 const wqCls = (P, v) => v == null ? 'na' : P.cls(v);
 const wqColor = (P, v) => ({ g: COLORS.good, y: COLORS.warn, r: COLORS.bad, na: '#94a3b8' })[wqCls(P, v)];
