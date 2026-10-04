@@ -1433,7 +1433,7 @@ async function renderParamMap(P, S, title) {
   // ชื่อพื้นที่รอบนอก
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = 'rgba(71,85,105,0.55)'; ctx.font = '26px TurSarabunBold';
-  ctx.fillText('ปทุมธานี', X(100.715), Y(14.035)); ctx.fillText('สมุทรสาคร', 76, Y(13.63));
+  ctx.fillText('ปทุมธานี', X(100.735), Y(13.985)); ctx.fillText('สมุทรสาคร', 76, Y(13.63));
   ctx.fillStyle = 'rgba(37,99,235,0.55)'; ctx.font = '30px TurSarabunBold'; ctx.fillText('อ่าวไทย', X(100.62), Y(13.497));
   const ring = (pts) => { ctx.beginPath(); pts.forEach(([la, lo], i) => i ? ctx.lineTo(X(lo), Y(la)) : ctx.moveTo(X(lo), Y(la))); ctx.closePath(); };
   // พื้นที่สาขา ลงสีตามภาค + เส้นขอบสาขาสีขาว
@@ -1472,7 +1472,7 @@ async function renderParamMap(P, S, title) {
   }
   // ป้ายภาค: ตำแหน่ง = จุดกลางของสาขาที่ใหญ่ที่สุดในภาค (กำหนดเองให้ไม่ทับจุด)
   // [lat, lon ของป้าย, (lat, lon จุดชี้ ถ้าป้ายอยู่นอกพื้นที่)]
-  const LABEL = [[13.505, 100.800], [14.075, 100.640, 13.790, 100.575], [13.905, 100.860], [13.545, 100.330], [14.075, 100.420]];
+  const LABEL = [[13.505, 100.800], [14.052, 100.640, 13.790, 100.575], [13.905, 100.860], [13.545, 100.330], [14.052, 100.420]];
   TUR_REGIONS.forEach((r, i) => {
     const g = wqGroup(P, turRegionIds(r), S); const [la, lo, ala, alo] = LABEL[i];
     const vt = wqFmt(P, g.avg); ctx.font = '42px TurSarabunBold'; const vw = ctx.measureText(vt).width;
@@ -1506,9 +1506,11 @@ async function renderParamMap(P, S, title) {
   // หัวเรื่อง + คำอธิบาย
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   const ttl = `${P.short}เฉลี่ยรายภาค (${P.unit})`; ctx.font = '32px TurSarabunBold'; const tw = Math.max(ctx.measureText(ttl).width, 300) + 36;
-  ctx.globalAlpha = 0.92; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.roundRect(18, 18, tw, 74, 14); ctx.fill(); ctx.globalAlpha = 1;
+  ctx.font = '28px TurSarabunBold'; const tw2 = ctx.measureText('🕗 ' + title).width + 36; ctx.font = '32px TurSarabunBold';
+  ctx.globalAlpha = 0.94; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.roundRect(18, 18, Math.max(tw, tw2), 104, 14); ctx.fill(); ctx.globalAlpha = 1;
   ctx.fillStyle = '#0f172a'; ctx.fillText(ttl, 34, 55);
-  ctx.fillStyle = '#64748b'; ctx.font = '22px TurSarabun'; ctx.fillText(title, 34, 82);
+  ctx.fillStyle = '#fef3c7'; ctx.beginPath(); ctx.roundRect(28, 70, Math.max(tw, tw2) - 20, 42, 10); ctx.fill();
+  ctx.fillStyle = '#92400e'; ctx.font = '28px TurSarabunBold'; ctx.fillText(title, 40, 100);
   const lg = [[WQ_HEX.g, P.legend[0]], [WQ_HEX.y, P.legend[1]], [WQ_HEX.r, P.legend[2]], ['#f97316', P.ringLabel]];
   ctx.globalAlpha = 0.92; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.roundRect(W - 288, 18, 270, 280, 14); ctx.fill(); ctx.globalAlpha = 1;
   lg.forEach(([c, t], i) => {
@@ -1591,6 +1593,9 @@ const WQP = {
     legend: ['≤ 500', '501–1,200', '> 1,200'], cnt: ['เขียว ≤500', 'เหลือง ≤1,200', 'แดง >1,200'], pass: '≤500 µS/cm',
     cmd: 'สรุป EC', yCmd: 'ECเมื่อวาน', regionCmd: 'ECบริการ', plantCmd: 'ECโรงงาน', since: 'ข้อมูลย้อนหลังเก็บ 7 วัน' },
 };
+// แตะแผนที่ → รายงานเว็บของพารามิเตอร์นั้น (ความขุ่น/EC ดึงข้อมูลชุดเดียวกับบอทเองถ้ายังไม่นำเข้าไฟล์)
+const WQ_WEB = 'https://piphatboribannukul.github.io/FRCfirebase/';
+const wqReportUrl = (pk, d) => pk === 'frc' ? `${WQ_WEB}report_daily.html` : `${WQ_WEB}${pk === 'ec' ? 'report_ec' : 'report_turbidity'}.html?d=${d < 0 ? -1 : 0}`;
 const WQ_HEX = { g: '#16a34a', y: '#f59e0b', r: '#dc2626', na: '#94a3b8' };
 const wqCls = (P, v) => v == null ? 'na' : P.cls(v);
 const wqColor = (P, v) => ({ g: COLORS.good, y: COLORS.warn, r: COLORS.bad, na: '#94a3b8' })[wqCls(P, v)];
@@ -1638,10 +1643,11 @@ const wqSub = (P, dayOffset, label) => `${P.en} · ${dayOffset < 0 ? `${label} (
 
 async function replyParamSummary(replyToken, pk, dayOffset = 0) {
   const P = WQP[pk];
+  const send = msgs => replyToken ? lineReply(replyToken, msgs) : msgs;   // replyToken = null → คืนข้อความ (ใช้ส่ง push/broadcast)
   try {
     const R = wqRange(dayOffset), S = await loadParamStats(P, R.start, R.end);
     if (!Object.keys(S).length)
-      return lineReply(replyToken, withQuickReply([{ type: 'text', text: `${P.title.split(' ')[0]} ยังไม่มีข้อมูล${P.short}${dayOffset < 0 ? 'ของเมื่อวาน' : 'สะสมวันนี้'}\n(${P.since})` }]));
+      return send( withQuickReply([{ type: 'text', text: `${P.title.split(' ')[0]} ยังไม่มีข้อมูล${P.short}${dayOffset < 0 ? 'ของเมื่อวาน' : 'สะสมวันนี้'}\n(${P.since})` }]));
     const all = Object.keys(TUR_STATIONS), has = all.filter(id => S[id]);
     const cnt = ids => { const c = { g: 0, y: 0, r: 0, n: ids.length }; ids.forEach(id => { if (S[id]) c[P.cls(S[id].avg)]++; }); return c; };
     const C = cnt(all), total = has.length, pct = total ? Math.round(C.g / total * 100) : 0;
@@ -1689,8 +1695,19 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
         { type: 'text', text: '›', size: 'sm', color: '#a78bfa', flex: 0, gravity: 'center' },
       ] }; };
 
+    // แถบช่วงเวลาข้อมูล (เด่น) — ให้รู้ชัดว่าเป็นข้อมูลช่วงไหนเท่านั้น
+    const endT = dayOffset < 0 ? '24:00' : thaiTime().replace(/\s*น\.?$/, '');
+    const spanMin = dayOffset < 0 ? 1440 : Math.max(0, Math.round((Date.now() - R.start) / 60000));
+    const spanTxt = spanMin >= 1440 ? 'ทั้งวัน 24 ชั่วโมง' : `${Math.floor(spanMin / 60)} ชั่วโมง${spanMin % 60 ? ` ${spanMin % 60} นาที` : ''}`;
+    const timeBar = { type: 'box', layout: 'horizontal', paddingAll: '10px', cornerRadius: '8px', backgroundColor: '#fef3c7', borderColor: '#f59e0b', borderWidth: '1px', margin: 'none', spacing: 'md', contents: [
+      { type: 'text', text: '🕗', size: 'xxl', flex: 0, gravity: 'center' },
+      { type: 'box', layout: 'vertical', flex: 5, contents: [
+        { type: 'text', text: `ข้อมูลช่วง 00:00 – ${endT} น.`, size: 'lg', weight: 'bold', color: '#92400e', wrap: true },
+        { type: 'text', text: `${R.label} · ${spanTxt}`, size: 'xs', color: '#b45309', wrap: true },
+      ] } ] };
     const body = [
-      { type: 'box', layout: 'horizontal', paddingAll: '10px', cornerRadius: '8px', backgroundColor: ob, contents: [
+      timeBar,
+      { type: 'box', layout: 'horizontal', margin: 'sm', paddingAll: '10px', cornerRadius: '8px', backgroundColor: ob, contents: [
         { type: 'text', text: oe, size: 'xl', flex: 0, gravity: 'center' },
         { type: 'box', layout: 'vertical', flex: 5, margin: 'sm', contents: [
           { type: 'text', text: `ภาพรวม (ค่าเฉลี่ย): ${ot}`, size: 'sm', weight: 'bold', color: COLORS.textPrimary },
@@ -1726,18 +1743,18 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
     body.push({ type: 'text', text: `เกณฑ์ 🟢 ${P.legend[0]} · 🟡 ${P.legend[1]} · 🔴 ${P.legend[2]} ${P.unit} · ไม่มีข้อมูล ${all.length - total} สถานี`, size: 'xxs', color: COLORS.textMuted, margin: 'sm', wrap: true });
 
     const flex = {
-      type: 'flex', altText: `${P.title} ${R.label} — ${oe}${ot} เฉลี่ย ${f(G.avg)} ${P.unit}`,
+      type: 'flex', altText: `${P.title} ${R.label} 00:00–${endT} น. — ${oe}${ot} เฉลี่ย ${f(G.avg)} ${P.unit}`,
       contents: { type: 'bubble', size: 'mega',
         ...(TUR_CANVAS ? { hero: { type: 'image', url: `${TUR_PUBLIC_URL}/wq-map.png?p=${pk}&d=${dayOffset < 0 ? -1 : 0}&t=${Date.now()}`,
-          size: 'full', aspectRatio: '1:1', aspectMode: 'cover', action: { type: 'uri', label: 'รายงานเต็ม', uri: TUR_REPORT_URL } } } : {}),
+          size: 'full', aspectRatio: '1:1', aspectMode: 'cover', action: { type: 'uri', label: 'รายงานเต็ม', uri: wqReportUrl(pk, dayOffset) } } } : {}),
         header: turHeader(P.title, wqSub(P, dayOffset, R.label)),
         body: { type: 'box', layout: 'vertical', paddingAll: '10px', paddingTop: '8px', contents: body },
       },
     };
-    return lineReply(replyToken, withQuickReply([flex]));
+    return send( withQuickReply([flex]));
   } catch (err) {
     console.error(`[WQ:${pk}] summary error:`, err);
-    return lineReply(replyToken, withQuickReply([{ type: 'text', text: `❌ สรุป${P.short} error: ` + err.message }]));
+    return send( withQuickReply([{ type: 'text', text: `❌ สรุป${P.short} error: ` + err.message }]));
   }
 }
 
@@ -3018,7 +3035,7 @@ app.get('/wq-map.png', async (req, res) => {
     if (!TUR_CANVAS) return res.status(503).send('canvas not available');
     const P = WQP[req.query.p] || WQP.tub, d = Number(req.query.d) < 0 ? -1 : 0, R = wqRange(d);
     const S = await loadParamStats(P, R.start, R.end);
-    const png = await renderParamMap(P, S, d < 0 ? `${R.label} (ทั้งวัน)` : `${R.label} · 0.00 – ${thaiTime()} น.`);
+    const png = await renderParamMap(P, S, d < 0 ? `ข้อมูลทั้งวัน 00:00–24:00 น. · ${R.label}` : `ข้อมูลช่วง 00:00–${thaiTime().replace(/\s*น\.?$/, '')} น. · ${R.label}`);
     res.set('Content-Type', 'image/png').set('Cache-Control', 'public, max-age=120').send(png);
   } catch (e) { console.error('[WQMap] render error:', e); res.status(500).send('render error'); }
 });
@@ -3211,9 +3228,20 @@ cron.schedule('0 8 1 * *', async () => {
   } catch (e) { console.error('[Cron] วาระเซ็นเซอร์ error:', e.message); }
 }, { timezone: 'Asia/Bangkok' });
 
-cron.schedule('0 8 * * *', () => {
-  console.log(`[Cron] ตรวจ FRC alert ประจำวัน (08:00 น.) — ${new Date().toISOString()}`);
-  checkAlerts();
+// [ต.ค.69] 08:00 น. — พักการแจ้งเตือนคลอรีน (checkAlerts) ไว้ก่อน → broadcast "สรุปความขุ่น 00:00–08:00 น. วันนี้" แทน
+//   เปิดแจ้งเตือนคลอรีนกลับ: ตั้งตัวแปร MORNING_FRC_ALERT=on ใน Railway
+//   ปิดสรุปความขุ่นตอนเช้า: ตั้งตัวแปร MORNING_TURBIDITY=off
+cron.schedule('0 8 * * *', async () => {
+  if (process.env.MORNING_FRC_ALERT === 'on') {
+    console.log(`[Cron] ตรวจ FRC alert ประจำวัน (08:00 น.)`);
+    checkAlerts();
+  }
+  if (process.env.MORNING_TURBIDITY !== 'off') {
+    try {
+      const msgs = await replyParamSummary(null, 'tub', 0);   // วันนี้ 00:00–08:00 น. → broadcast ทุกคน (โควตาหมดคือหมด)
+      if (Array.isArray(msgs) && msgs.length) { await lineBroadcast(msgs); console.log('[Cron] broadcast สรุปความขุ่น 00:00–08:00 น. แล้ว'); }
+    } catch (e) { console.error('[Cron] สรุปความขุ่นเช้า error:', e.message); }
+  }
 }, { timezone: 'Asia/Bangkok' });
 
 cron.schedule('*/10 * * * *', async () => {
