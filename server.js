@@ -790,6 +790,25 @@ async function handleTextMessage(replyToken, text, userId, sourceType = 'user') 
   // ── เมนูรายงานคุณภาพน้ำ: "สรุป" / "สรุปคุณภาพน้ำ" / "สรุปค่า" / "รายงานคุณภาพน้ำ" → เลือก คลอรีน / ความขุ่น / ความนำไฟฟ้า
   //    (สรุปคลอรีน / สรุป FRC → การ์ดคลอรีน [กฎ /คลอรีน|frc/ ด้านล่าง], สรุปความขุ่น / สรุปขุ่น → การ์ดความขุ่น)
   { const t = msg.replace(/\s+/g, '');
+    // ── ตัด/คืนค่าสถานี: "ตัดค่า คลอรีน ศิริราช [เหตุผล]" · "คืนค่า คลอรีน ศิริราช" · "รายการตัดค่า"
+    { const m = msg.trim().match(/^(ตัดค่า|คืนค่า)\s+(คลอรีน|frc|ขุ่น|ความขุ่น|ec|ความนำไฟฟ้า)\s+(\S+)\s*(.*)$/i);
+      if (m) {
+        const pk = /ขุ่น/.test(m[2]) ? 'tub' : /คลอรีน|frc/i.test(m[2]) ? 'frc' : 'ec', P = WQP[pk];
+        const hits = Object.keys(TUR_STATIONS).filter(id => id.toLowerCase() === m[3].toLowerCase() || TUR_STATIONS[id][0].includes(m[3]));
+        if (hits.length !== 1) return lineReply(replyToken, [{ type: 'text', text: hits.length ? `พบหลายสถานี ระบุให้ชัดขึ้น:\n${hits.map(id => `${id} ${TUR_STATIONS[id][0]}`).join('\n')}` : `ไม่พบสถานี "${m[3]}"` }]);
+        const id = hits[0];
+        if (m[1] === 'ตัดค่า') await db.ref(`wq_exclude/${pk}/${id}`).set({ reason: m[4] || 'เซนเซอร์ผิดปกติ', by: userId || '', ts: Date.now() });
+        else await db.ref(`wq_exclude/${pk}/${id}`).remove();
+        _wqEx.t = 0; Object.keys(_wqCache).forEach(k => delete _wqCache[k]);
+        return lineReply(replyToken, withQuickReply([{ type: 'text', text: m[1] === 'ตัดค่า'
+          ? `🚫 ตัด${P.short} ${TUR_STATIONS[id][0]} (${id}) ออกจากการคำนวณแล้ว\nเหตุผล: ${m[4] || 'เซนเซอร์ผิดปกติ'}\nคืนค่า: พิมพ์ "คืนค่า ${m[2]} ${m[3]}"`
+          : `✅ คืน${P.short} ${TUR_STATIONS[id][0]} (${id}) กลับเข้าการคำนวณแล้ว` }]));
+      } }
+    if (/^รายการตัดค่า$/.test(t)) {
+      const ex = (await db.ref('wq_exclude').once('value')).val() || {};
+      const lines = Object.entries(ex).flatMap(([pk, o]) => Object.entries(o || {}).map(([id, x]) => `• ${WQP[pk] ? WQP[pk].short : pk}: ${(TUR_STATIONS[id] || [id])[0]} (${id}) — ${x.reason || ''} · ตั้งแต่ ${thaiDate(new Date(x.ts))}`));
+      return lineReply(replyToken, withQuickReply([{ type: 'text', text: `🚫 สถานีที่ตัดออกจากการคำนวณ (${lines.length})\n${lines.join('\n') || '— ไม่มี —'}` }]));
+    }
     if (/^(สรุป|สรุปคุณภาพน้ำ|สรุปค่า|รายงานคุณภาพน้ำ|คุณภาพน้ำ)$/i.test(t)) return replyWaterQualityMenu(replyToken);
     // คำทั่วไป เช่น "สรุปรายงาน" "รายงาน" "report" ที่ไม่ได้ระบุพารามิเตอร์ → เมนูเลือกก่อนเสมอ
     //   (ยกเว้น สรุปวัน / ตาราง / ส่ง… / แจ้งซ่อม ที่มีคำสั่งเฉพาะอยู่แล้ว)
@@ -1601,26 +1620,39 @@ const wqRiskVal = (P, d) => d == null ? null : (P.risk === 'min' ? d.min : d.max
 const wqShort = n => { if (n.length <= 30) return n; const c = n.slice(0, 30), sp = c.lastIndexOf(' '); return (sp > 15 ? c.slice(0, sp) : c).replace(/[\s(]+$/, '') + '…'; };
 const wqRiskLabel = P => P.risk === 'min' ? 'ต่ำสุด' : 'สูงสุด';
 
+// 🚫 สถานีที่ตัดออกจากการคำนวณ (เซนเซอร์เสีย/ค่าค้าง) — เก็บใน Firebase: wq_exclude/{tub|frc|ec}/{สถานี} = { reason, by, ts }
+//    จัดการผ่าน LINE: "ตัดค่า คลอรีน ศิริราช" / "คืนค่า คลอรีน ศิริราช" / "รายการตัดค่า"
+let _wqEx = { t: 0, v: {} };
+async function getWqExclude() {
+  if (Date.now() - _wqEx.t < 60000) return _wqEx.v;
+  try { _wqEx = { t: Date.now(), v: (await db.ref('wq_exclude').once('value')).val() || {} }; } catch (e) { console.error('[WQ] exclude load', e.message); }
+  return _wqEx.v;
+}
 const _wqCache = {};
 async function loadParamStats(P, startTs, endTs) {
   const ck = `${P.key}-${startTs}-${endTs || ''}`, hit = _wqCache[ck];
   if (hit && Date.now() - hit.t < 120000) return hit.v;
-  const out = {};
-  await Promise.all(Object.keys(TUR_STATIONS).map(async id => {
+  const out = {}, EX = (await getWqExclude())[P.key] || {};
+  await Promise.all(Object.keys(TUR_STATIONS).filter(id => !EX[id]).map(async id => {
     try {
-      let q = db.ref(`${P.node}/${id}`).orderByKey().startAt(String(startTs));
-      if (endTs) q = q.endAt(String(endTs - 1));
+      // หลักท้ายชั่วโมง (hour-ending): ช่วงวัน = (00:00, 24:00] → ไม่รวมจุด 00:00 พอดีของวันนี้ (เป็นชั่วโมง 24:00 ของเมื่อวาน)
+      let q = db.ref(`${P.node}/${id}`).orderByKey().startAt(String(startTs + 1));
+      if (endTs) q = q.endAt(String(endTs));
       const v = (await q.once('value')).val() || {};
-      let sum = 0, n = 0, max = null, maxTs = 0, min = null, minTs = 0; const hrs = new Set();
+      // จัดกลุ่มรายชั่วโมงแบบ "ท้ายชั่วโมง": ชั่วโมง 01:00 = (00:00, 01:00] ฯลฯ → เฉลี่ยรายวัน = เฉลี่ยของค่าเฉลี่ยรายชั่วโมง
+      //   สูงสุด/ต่ำสุด = จุดเดียวที่สูง/ต่ำที่สุดในช่วง (ไม่ขึ้นกับการจัดกลุ่ม)
+      let n = 0, max = null, maxTs = 0, min = null, minTs = 0; const hb = {};
       for (const p of Object.values(v)) {
         if (!p) continue;
         const t = Number(p[P.field]);
         if (p[P.field] == null || !isFinite(t) || !P.valid(t)) continue;
-        sum += t; n++; hrs.add(Math.floor((Number(p.ts) - startTs) / 3600e3));
+        const hi = Math.ceil((Number(p.ts) - startTs) / 3600e3);   // 1..24
+        (hb[hi] = hb[hi] || { s: 0, c: 0 }); hb[hi].s += t; hb[hi].c++; n++;
         if (max == null || t > max) { max = t; maxTs = p.ts; }
         if (min == null || t < min) { min = t; minTs = p.ts; }
       }
-      if (n) out[id] = { avg: sum / n, max, maxTs, min, minTs, n, h: hrs.size };
+      const hv = Object.values(hb).map(b => b.s / b.c);
+      if (n) out[id] = { avg: hv.reduce((a, x) => a + x, 0) / hv.length, max, maxTs, min, minTs, n, h: hv.length };
     } catch (e) { console.error(`[WQ:${P.key}] load`, id, e.message); }
   }));
   _wqCache[ck] = { t: Date.now(), v: out };
@@ -1736,7 +1768,8 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
             text: `${wqDot(P, out)} ${wqShort(TUR_STATIONS[id][0])} — ${f(out)} ${P.unit} (${thaiTime(new Date(ts))} น.)` }; }),
       ] });
     }
-    body.push({ type: 'text', text: `เกณฑ์ 🟢 ${P.legend[0]} · 🟡 ${P.legend[1]} · 🔴 ${P.legend[2]} ${P.unit} · ไม่มีข้อมูล ${all.length - total} สถานี`, size: 'xxs', color: COLORS.textMuted, margin: 'sm', wrap: true });
+    const exN = Object.keys((await getWqExclude())[P.key] || {}).length;
+    body.push({ type: 'text', text: `เกณฑ์ 🟢 ${P.legend[0]} · 🟡 ${P.legend[1]} · 🔴 ${P.legend[2]} ${P.unit} · ไม่มีข้อมูล ${all.length - total} สถานี${exN ? ` (ตัดออก ${exN} สถานีเพราะเซนเซอร์ผิดปกติ)` : ''}`, size: 'xxs', color: COLORS.textMuted, margin: 'sm', wrap: true });
 
     const flex = {
       type: 'flex', altText: `${P.title} ${R.label} 00:00–${endT} น. — ${oe}${ot} เฉลี่ย ${f(G.avg)} ${P.unit}`,
@@ -3033,6 +3066,11 @@ app.get('/wq-stats.json', async (req, res) => {
     const S = await loadParamStats(P, R.start, R.end);
     res.json({ p: P.key, start: R.start, end: R.end || Date.now(), label: R.label, stations: S });
   } catch (e) { console.error('[WQStats] error:', e); res.status(500).json({ error: e.message }); }
+});
+
+app.get('/wq-exclude.json', async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*').set('Cache-Control', 'public, max-age=60');
+  try { res.json(await getWqExclude()); } catch (e) { res.status(500).json({}); }
 });
 
 // 🏛️ โลโก้ กปน. สำหรับหัวการ์ดรายงานคุณภาพน้ำ
