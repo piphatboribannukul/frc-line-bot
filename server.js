@@ -1331,6 +1331,11 @@ function turHeader(title, sub) {   // หัวการ์ดแบบเตี
 }
 
 // อ่าน history_wq ช่วงเวลา → สถิติรายสถานี {avg,max,maxTs,min,n}
+// เที่ยงคืนเวลาไทย (server Railway เป็น UTC — ห้ามใช้ setHours(0) ตรงๆ) · dayOffset -1 = เมื่อวาน
+function bkkMidnight(dayOffset = 0) {
+  const b = new Date(Date.now() + 7 * 3600e3);
+  return Date.UTC(b.getUTCFullYear(), b.getUTCMonth(), b.getUTCDate()) - 7 * 3600e3 + dayOffset * 86400e3;
+}
 const _turCache = {};   // กันโหลดซ้ำ: การ์ด + รูปแผนที่เรียกช่วงเดียวกันภายใน 2 นาที
 async function loadTurbidityStats(startTs, endTs) {
   const ck = `${startTs}-${endTs || ''}`, hit = _turCache[ck];
