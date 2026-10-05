@@ -1699,10 +1699,10 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
       { type: 'text', text: label, size: 'xs', color: COLORS.textSecondary, flex: 4, gravity: 'center' },
       { type: 'text', text: f(v), size: 'md', weight: 'bold', color: wqColor(P, v), flex: 3, align: 'end', gravity: 'center' },
       { type: 'text', text: P.unit, size: 'xxs', color: COLORS.textMuted, flex: 0, align: 'end', gravity: 'center', margin: 'sm' } ] });
-    const bigBlock = (icon, title, bg, hint, inner, action) => ({
+    const bigBlock = (icon, title, bg, hint, inner, action, headRow) => ({
       type: 'box', layout: 'vertical', margin: 'sm', paddingAll: '6px', paddingStart: '8px', paddingEnd: '8px', cornerRadius: '8px', backgroundColor: bg,
       contents: [
-        { type: 'box', layout: 'horizontal', spacing: 'sm', alignItems: 'center', ...(action ? { action } : {}), contents: [
+        headRow || { type: 'box', layout: 'horizontal', spacing: 'sm', alignItems: 'center', ...(action ? { action } : {}), contents: [
           { type: 'image', url: icon, size: '28px', aspectMode: 'fit', aspectRatio: '1:1', flex: 0 },
           { type: 'text', text: title, size: 'sm', weight: 'bold', color: COLORS.textPrimary, flex: 5, gravity: 'center' },
           ...(hint ? [{ type: 'text', text: hint, size: 'xxs', color: '#64748b', flex: 3, align: 'end', gravity: 'center' }] : []),
@@ -1732,15 +1732,21 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
           { type: 'box', layout: 'vertical', flex: 0, width: '36px', justifyContent: 'center', contents: [{ type: 'text', text: RL, size: 'xxs', color: COLORS.textSecondary, align: 'end' }] },
           ...PG.map(g => ({ type: 'text', text: f(g.risk), size: 'xxs', color: wqColor(P, g.risk), align: 'center', gravity: 'center', flex: 1 }))] },
       ] };
-    // หัวคอลัมน์ "เฉลี่ย / สูงสุด" — โครงเดียวกับแถวข้อมูล (flex/padding/spacing เท่ากัน) จึงตรงคอลัมน์พอดี
-    const colHead = withBadge => ({ type: 'box', layout: 'horizontal', paddingStart: '5px', paddingEnd: '5px', spacing: 'sm', contents: [
-      ...(withBadge ? [{ type: 'box', layout: 'vertical', flex: 0, width: '22px', contents: [] }] : []),
-      { type: 'text', text: ' ', size: 'xxs', flex: 4 },
-      { type: 'text', text: ' ', size: 'xxs', flex: 3 },
-      { type: 'text', text: 'เฉลี่ย', size: 'xxs', color: COLORS.textSecondary, flex: 3, align: 'end' },
-      { type: 'text', text: RL, size: 'xxs', color: COLORS.textSecondary, flex: 3, align: 'end' },
-      { type: 'text', text: '›', size: 'sm', color: '#ffffff00', flex: 0 },
-    ] });
+    // หัวบล็อก = ไอคอน + ชื่อ + "เฉลี่ย / สูงสุด" ในบรรทัดเดียว (ประหยัดความสูง) — โครงเดียวกับแถวข้อมูลจึงตรงคอลัมน์
+    //   แถวข้อมูล: [ป้าย 26px]? ชื่อ(4) จำนวน(3) เฉลี่ย(3) สูงสุด(3) › · ช่องว่างระหว่างช่อง = sm(4px)
+    const colLbl = (t, extra = {}) => ({ type: 'text', text: t, size: 'xxs', color: COLORS.textSecondary, flex: 3, align: 'end', gravity: 'bottom', ...extra });
+    const headCols = (icon, title, withBadge) => ({ type: 'box', layout: 'horizontal', paddingStart: '5px', paddingEnd: '5px', spacing: 'sm', alignItems: 'center', contents: withBadge ? [
+        { type: 'box', layout: 'vertical', flex: 0, width: '26px', contents: [{ type: 'image', url: icon, size: '26px', aspectMode: 'fit', aspectRatio: '1:1' }] },
+        { type: 'text', text: title, size: 'sm', weight: 'bold', color: COLORS.textPrimary, flex: 7, margin: 'md' },   // ชื่อ(4)+จำนวน(3) + ช่องว่างที่หายไป 1 ช่อง
+        colLbl('เฉลี่ย'), colLbl(RL),
+        { type: 'text', text: '›', size: 'sm', color: '#ffffff00', flex: 0 },
+      ] : [
+        { type: 'box', layout: 'horizontal', flex: 7, spacing: 'sm', alignItems: 'center', contents: [
+          { type: 'image', url: icon, size: '26px', aspectMode: 'fit', aspectRatio: '1:1', flex: 0 },
+          { type: 'text', text: title, size: 'sm', weight: 'bold', color: COLORS.textPrimary, flex: 1 } ] },
+        colLbl('เฉลี่ย', { margin: 'md' }), colLbl(RL),
+        { type: 'text', text: '›', size: 'sm', color: '#ffffff00', flex: 0 },
+      ] });
     // สถานีสูบจ่าย: ฝั่งตะวันตก/ตะวันออก (แตะ → รายสถานี)
     const pumpLine = p => { const g = wqGroup(P, p.ids, S); return {
       type: 'box', layout: 'horizontal', paddingAll: '4px', paddingStart: '5px', paddingEnd: '5px', cornerRadius: '6px', backgroundColor: '#ffffffb3', spacing: 'sm',
@@ -1756,7 +1762,7 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
       type: 'box', layout: 'horizontal', paddingAll: '4px', paddingStart: '5px', paddingEnd: '5px', cornerRadius: '6px', backgroundColor: '#ffffffb3', spacing: 'sm',
       action: { type: 'message', label: r.name, text: `${P.regionCmd} ${i + 1}${dayOffset < 0 ? ' เมื่อวาน' : ''}` },
       contents: [
-        { type: 'box', layout: 'vertical', flex: 0, width: '22px', height: '22px', cornerRadius: '6px', backgroundColor: r.col, justifyContent: 'center', alignItems: 'center',
+        { type: 'box', layout: 'vertical', flex: 0, width: '26px', height: '22px', cornerRadius: '6px', backgroundColor: r.col, justifyContent: 'center', alignItems: 'center',
           contents: [{ type: 'text', text: String(i + 1), size: 'xs', weight: 'bold', color: '#ffffff', align: 'center' }] },
         { type: 'text', text: r.name, size: 'xs', color: COLORS.textPrimary, flex: 4, gravity: 'center' },
         { type: 'text', text: `${ids.length} สถานี`, size: 'xxs', color: COLORS.textMuted, flex: 3, gravity: 'center' },
@@ -1777,16 +1783,16 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
       ] } ] };
     const body = [
       timeBar,
-      bigBlock(IMAGES.iconSend, 'โรงงานผลิตน้ำ', '#dbeafe', 'รายสถานี ›', [plantTable],
-        { type: 'message', label: 'โรงงานผลิตน้ำ', text: `${P.plantCmd}${dayOffset < 0 ? ' เมื่อวาน' : ''}` }),
+      bigBlock(IMAGES.iconSend, 'โรงงานผลิตน้ำ', '#dbeafe', null, [plantTable,
+        { type: 'text', text: 'แตะเพื่อดูรายสถานี ›', size: 'xxs', color: '#1d4ed8' }]),
       bigBlock(IMAGES.iconPump, 'สถานีสูบจ่ายน้ำ', '#d1fae5', null, [
-        colHead(false),
         ...TUR_PUMPS.map(pumpLine),
-      ]),
+        { type: 'text', text: 'แตะเพื่อดูรายสถานี ›', size: 'xxs', color: '#047857' },
+      ], null, headCols(IMAGES.iconPump, 'สถานีสูบจ่ายน้ำ', false)),
       bigBlock(IMAGES.iconMonitor, 'น้ำในระบบจ่าย', '#ede9fe', null, [
-        colHead(true),
         ...TUR_REGIONS.map(regionLine),
-      ]),
+        { type: 'text', text: 'แตะแต่ละภาคเพื่อดูรายสถานี ›', size: 'xxs', color: '#7c3aed' },
+      ], null, headCols(IMAGES.iconMonitor, 'น้ำในระบบจ่าย', true)),
     ];
     if (exceed.length) {
       body.push({ type: 'separator', margin: 'xs' });
