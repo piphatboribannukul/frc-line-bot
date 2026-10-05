@@ -816,6 +816,8 @@ async function handleTextMessage(replyToken, text, userId, sourceType = 'user') 
       return replyWaterQualityMenu(replyToken);
     { const m = t.match(/^(ขุ่น|ความขุ่น|คลอรีน|frc|ec|ความนำไฟฟ้า|ความนำ)โรงงาน(เมื่อวาน)?$/i);
       if (m) return replyParamPlants(replyToken, /ขุ่น/.test(m[1]) ? 'tub' : /คลอรีน|frc/i.test(m[1]) ? 'frc' : 'ec', m[2] ? -1 : 0); }
+    { const m = t.match(/^(ขุ่น|ความขุ่น|คลอรีน|frc|ec|ความนำไฟฟ้า|ความนำ)สูบจ่าย(เมื่อวาน)?$/i);
+      if (m) return replyParamPumps(replyToken, /ขุ่น/.test(m[1]) ? 'tub' : /คลอรีน|frc/i.test(m[1]) ? 'frc' : 'ec', m[2] ? -1 : 0); }
     { const m = t.match(/^(คลอรีน|frc|ec|ความนำไฟฟ้า|ความนำ)บริการ([1-5])(เมื่อวาน)?$/i);
       if (m) return replyParamRegion(replyToken, /คลอรีน|frc/i.test(m[1]) ? 'frc' : 'ec', Number(m[2]) - 1, m[3] ? -1 : 0); }
     if (/^(สรุป)?(คลอรีน|frc)เมื่อวาน$|^เมื่อวาน(คลอรีน|frc)$/i.test(t)) return replyParamSummary(replyToken, 'frc', -1);
@@ -1336,6 +1338,10 @@ const TUR_REGIONS = [
   { name: 'บริการ 5', col: '#2fa88a', bg: '#e5f5f0', br: ['นนทบุรี','บางบัวทอง','มหาสวัสดิ์'] },
 ];
 const TUR_PLANT_IDS = TUR_PLANTS.flatMap(p => p.ids);
+const TUR_PUMPS = [   // สถานีสูบจ่ายน้ำ แบ่งฝั่งตะวันตก/ตะวันออก (แม่น้ำเจ้าพระยา)
+  { name: 'ฝั่งตะวันตก', ids: ['SW08','SW09','SW10'] },
+  { name: 'ฝั่งตะวันออก', ids: ['SW02','SW01','SW03','SW04','SW05','SW06','SW07','SW11'] },
+];
 const TUR_HEADER_COL = '#a16207';
 function turHeader(title, sub) {   // หัวการ์ดแบบเตี้ย: โลโก้ กปน. บนวงกลมขาว + 2 บรรทัด
   return { type: 'box', layout: 'horizontal', backgroundColor: TUR_HEADER_COL, paddingAll: '10px', paddingStart: '12px', spacing: 'md', alignItems: 'center',
@@ -1391,7 +1397,9 @@ function turGroupStats(ids, S) {
   return { avg: d.reduce((a, id) => a + S[id].avg, 0) / d.length, max: S[top].max, maxId: top, n: d.length, tot: ids.length };
 }
 const turType = id => SEND_IDS.includes(id) ? 'send' : (PUMP_IDS.includes(id) || id.startsWith('SW') || id.startsWith('SP')) ? 'pump' : 'monitor';
-const turRegionIds = r => Object.keys(TUR_STATIONS).filter(id => r.br.includes(TUR_STATIONS[id][1]) && !TUR_PLANT_IDS.includes(id));
+// บริการ 1–5 = สถานีในพื้นที่สาขา ไม่รวมน้ำออกโรงงานและสถานีสูบจ่าย (มีบล็อกของตัวเองแล้ว ไม่นับซ้ำ)
+const TUR_PUMP_IDS = TUR_PUMPS.flatMap(p => p.ids);
+const turRegionIds = r => Object.keys(TUR_STATIONS).filter(id => r.br.includes(TUR_STATIONS[id][1]) && !TUR_PLANT_IDS.includes(id) && !TUR_PUMP_IDS.includes(id));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 🗺️ แผนที่ความขุ่น (PNG) สำหรับ hero ของการ์ด LINE — ลงสีพื้นที่ตามภาค (บริการ 1–5), จุดสถานีตามเกณฑ์
@@ -1596,17 +1604,17 @@ const WQP = {
     cls: v => v <= 4 ? 'g' : v <= 5 ? 'y' : 'r', valid: v => v > 0 && v < 1000,   // 0.00 พอดี = เซนเซอร์ error/ไม่มีข้อมูล
     risk: 'max', exceed: d => d.max > 4, exceedText: 'ค่าสูงสุดเกิน 4 NTU', ringLabel: 'มีช่วงเกิน 4',
     legend: ['≤ 4', '> 4–5', '> 5'], cnt: ['เขียว ≤4', 'เหลือง >4–5', 'แดง >5'], pass: '≤4 NTU',
-    cmd: 'สรุปความขุ่น', yCmd: 'ขุ่นเมื่อวาน', regionCmd: 'ขุ่นบริการ', plantCmd: 'ขุ่นโรงงาน', since: 'เริ่มเก็บข้อมูลความขุ่นตั้งแต่ 3 ต.ค. 69 16:12 น.' },
+    cmd: 'สรุปความขุ่น', yCmd: 'ขุ่นเมื่อวาน', regionCmd: 'ขุ่นบริการ', plantCmd: 'ขุ่นโรงงาน', pumpCmd: 'ขุ่นสูบจ่าย', since: 'เริ่มเก็บข้อมูลความขุ่นตั้งแต่ 3 ต.ค. 69 16:12 น.' },
   frc: { key: 'frc', node: 'history', field: 'frc', short: 'คลอรีน', title: '🧪 คลอรีนอิสระคงเหลือ', rTitle: 'รายงานคลอรีนอิสระคงเหลือเฉลี่ย', en: 'FRC', unit: 'mg/L', dec: 2,
     cls: v => (v < 0.01 || v > 5) ? 'r' : (v < 0.2 || v > 2) ? 'y' : 'g', valid: v => v > 0 && v < 20,   // 0.00 พอดี = เซนเซอร์ error (TWQMS แสดง E) / poll.yml เขียน 0 แทนค่าว่าง → ไม่นำมาคำนวณ
     risk: 'min', exceed: d => d.min < 0.2 || d.max > 2, exceedText: 'มีช่วงนอกเกณฑ์ 0.2–2.0 mg/L', ringLabel: 'มีช่วงนอก 0.2–2',
     legend: ['0.2–2.0', '<0.2 / 2–5', 'ไม่พบ / >5'], cnt: ['เขียว 0.2–2', 'เหลือง', 'แดง'], pass: '0.2–2.0 mg/L',
-    cmd: 'สรุปคลอรีน', yCmd: 'คลอรีนเมื่อวาน', regionCmd: 'คลอรีนบริการ', plantCmd: 'คลอรีนโรงงาน', since: 'ข้อมูลย้อนหลังเก็บ 7 วัน' },
+    cmd: 'สรุปคลอรีน', yCmd: 'คลอรีนเมื่อวาน', regionCmd: 'คลอรีนบริการ', plantCmd: 'คลอรีนโรงงาน', pumpCmd: 'คลอรีนสูบจ่าย', since: 'ข้อมูลย้อนหลังเก็บ 7 วัน' },
   ec: { key: 'ec', node: 'history', field: 'ec', short: 'ความนำไฟฟ้า', title: '⚡ ความนำไฟฟ้า', rTitle: 'รายงานความนำไฟฟ้าเฉลี่ย', en: 'EC', unit: 'µS/cm', dec: 0,
     cls: v => v <= 500 ? 'g' : v <= 1200 ? 'y' : 'r', valid: v => v > 0 && v < 100000,
     risk: 'max', exceed: d => d.max > 500, exceedText: 'ค่าสูงสุดเกิน 500 µS/cm', ringLabel: 'มีช่วงเกิน 500',
     legend: ['≤ 500', '501–1,200', '> 1,200'], cnt: ['เขียว ≤500', 'เหลือง ≤1,200', 'แดง >1,200'], pass: '≤500 µS/cm',
-    cmd: 'สรุป EC', yCmd: 'ECเมื่อวาน', regionCmd: 'ECบริการ', plantCmd: 'ECโรงงาน', since: 'ข้อมูลย้อนหลังเก็บ 7 วัน' },
+    cmd: 'สรุป EC', yCmd: 'ECเมื่อวาน', regionCmd: 'ECบริการ', plantCmd: 'ECโรงงาน', pumpCmd: 'ECสูบจ่าย', since: 'ข้อมูลย้อนหลังเก็บ 7 วัน' },
 };
 // แตะแผนที่ → รายงานเว็บของพารามิเตอร์นั้น (ความขุ่น/EC ดึงข้อมูลชุดเดียวกับบอทเองถ้ายังไม่นำเข้าไฟล์)
 const WQ_WEB = 'https://piphatboribannukul.github.io/FRCfirebase/';
@@ -1710,6 +1718,23 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
         { type: 'text', text: f(g.avg), size: 'md', weight: 'bold', color: wqColor(P, g.avg), align: 'center' },
         { type: 'text', text: f(g.risk), size: 'xxs', color: wqColor(P, g.risk), align: 'center' },
       ] }; };
+    // ป้ายกำกับหน้าแถวโรงงาน: ใช้ขนาดบรรทัดเท่าช่องจริง (ชื่อ xxs / เฉลี่ย md / สูงสุด xxs) ให้ตรงกันพอดี
+    const rowLabels = { type: 'box', layout: 'vertical', flex: 0, width: '38px', paddingAll: '4px', paddingStart: '0px', contents: [
+      { type: 'text', text: ' ', size: 'xxs' },
+      { type: 'text', size: 'md', align: 'end', gravity: 'center', contents: [{ type: 'span', text: 'เฉลี่ย', size: 'xxs', color: COLORS.textSecondary }] },
+      { type: 'text', text: RL, size: 'xxs', color: COLORS.textSecondary, align: 'end' },
+    ] };
+    // สถานีสูบจ่าย: ฝั่งตะวันตก/ตะวันออก (แตะ → รายสถานี)
+    const pumpLine = p => { const g = wqGroup(P, p.ids, S); return {
+      type: 'box', layout: 'horizontal', margin: 'xs', paddingAll: '5px', cornerRadius: '6px', backgroundColor: '#ffffffb3', spacing: 'sm',
+      action: { type: 'message', label: p.name, text: `${P.pumpCmd}${dayOffset < 0 ? ' เมื่อวาน' : ''}` },
+      contents: [
+        { type: 'text', text: p.name, size: 'xs', color: COLORS.textPrimary, flex: 4, gravity: 'center' },
+        { type: 'text', text: `${p.ids.length} สถานี`, size: 'xxs', color: COLORS.textMuted, flex: 3, gravity: 'center' },
+        { type: 'text', text: f(g.avg), size: 'sm', weight: 'bold', color: wqColor(P, g.avg), flex: 3, align: 'end', gravity: 'center' },
+        { type: 'text', text: f(g.risk), size: 'xxs', color: wqColor(P, g.risk), flex: 3, align: 'end', gravity: 'center' },
+        { type: 'text', text: '›', size: 'sm', color: '#10b981', flex: 0, gravity: 'center' },
+      ] }; };
     const regionLine = (r, i) => { const ids = turRegionIds(r), g = wqGroup(P, ids, S); return {
       type: 'box', layout: 'horizontal', margin: 'xs', paddingAll: '5px', cornerRadius: '6px', backgroundColor: '#ffffffb3', spacing: 'sm',
       action: { type: 'message', label: r.name, text: `${P.regionCmd} ${i + 1}${dayOffset < 0 ? ' เมื่อวาน' : ''}` },
@@ -1735,14 +1760,6 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
       ] } ] };
     const body = [
       timeBar,
-      { type: 'box', layout: 'horizontal', margin: 'sm', paddingAll: '10px', cornerRadius: '8px', backgroundColor: ob, contents: [
-        { type: 'text', text: oe, size: 'xl', flex: 0, gravity: 'center' },
-        { type: 'box', layout: 'vertical', flex: 5, margin: 'sm', contents: [
-          { type: 'text', text: `ภาพรวม (ค่าเฉลี่ย): ${ot}`, size: 'sm', weight: 'bold', color: COLORS.textPrimary },
-          { type: 'text', text: `ค่าเฉลี่ยผ่านเกณฑ์ ${P.pass} ${C.g}/${total} สถานี (${pct}%)`, size: 'xxs', color: COLORS.textSecondary, wrap: true },
-          makeProgressBar(pct, pct >= 90 ? COLORS.good : pct >= 70 ? COLORS.warn : COLORS.bad),
-        ] },
-      ] },
       { type: 'box', layout: 'horizontal', margin: 'sm', spacing: 'sm', contents: [
         makeCountBox(P.cnt[0], C.g, COLORS.good), makeCountBox(P.cnt[1], C.y, COLORS.warn), makeCountBox(P.cnt[2], C.r, COLORS.bad),
       ] },
@@ -1750,9 +1767,13 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
       stat(`${P.short}เฉลี่ย`, G.avg),
       stat(`ค่า${RL}`, G.risk),
       { type: 'separator', margin: 'sm' },
-      bigBlock(IMAGES.iconSend, 'โรงงานผลิตน้ำ', '#dbeafe', `เฉลี่ย · ${RL}`, [
-        { type: 'box', layout: 'horizontal', spacing: 'xs', contents: TUR_PLANTS.map(plantCell) },
+      bigBlock(IMAGES.iconSend, 'โรงงานผลิตน้ำ', '#dbeafe', null, [
+        { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [rowLabels, ...TUR_PLANTS.map(plantCell)] },
         { type: 'text', text: 'แตะเพื่อดูรายสถานี ›', size: 'xxs', color: '#1d4ed8', margin: 'sm' },
+      ]),
+      bigBlock(IMAGES.iconPump, 'สถานีสูบจ่ายน้ำ', '#d1fae5', `เฉลี่ย · ${RL}`, [
+        ...TUR_PUMPS.map(pumpLine),
+        { type: 'text', text: 'แตะเพื่อดูรายสถานี ›', size: 'xxs', color: '#047857', margin: 'sm' },
       ]),
       bigBlock(IMAGES.iconMonitor, 'น้ำในระบบจ่าย', '#ede9fe', `เฉลี่ย · ${RL}`, [
         ...TUR_REGIONS.map(regionLine),
@@ -1788,19 +1809,22 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
 }
 
 // รายละเอียดโรงงานผลิตน้ำ: 4 โรงงาน แยกหัวข้อ + สถานีน้ำออกของแต่ละโรงงาน
-async function replyParamPlants(replyToken, pk, dayOffset = 0) {
+async function replyParamPumps(replyToken, pk, dayOffset = 0) { return replyParamPlants(replyToken, pk, dayOffset, 'pump'); }
+async function replyParamPlants(replyToken, pk, dayOffset = 0, kind = 'plant') {
   const P = WQP[pk];
+  const GROUPS = kind === 'pump' ? TUR_PUMPS : TUR_PLANTS, GTITLE = kind === 'pump' ? 'สถานีสูบจ่ายน้ำ' : 'โรงงานผลิตน้ำ';
+  const GICON = kind === 'pump' ? IMAGES.iconPump : IMAGES.iconSend, GBG = kind === 'pump' ? '#d1fae5' : '#dbeafe', GCOL = kind === 'pump' ? '#047857' : '#1d4ed8';
   try {
     const R = wqRange(dayOffset), S = await loadParamStats(P, R.start, R.end), f = v => wqFmt(P, v), RL = wqRiskLabel(P);
-    const ids = TUR_PLANTS.flatMap(p => p.ids), g = wqGroup(P, ids, S);
+    const ids = GROUPS.flatMap(p => p.ids), g = wqGroup(P, ids, S);
     const body = [
-      { type: 'box', layout: 'horizontal', paddingAll: '10px', cornerRadius: '8px', backgroundColor: '#dbeafe', spacing: 'md', contents: [
-        { type: 'image', url: IMAGES.iconSend, size: '44px', aspectMode: 'fit', aspectRatio: '1:1', flex: 0 },
+      { type: 'box', layout: 'horizontal', paddingAll: '10px', cornerRadius: '8px', backgroundColor: GBG, spacing: 'md', contents: [
+        { type: 'image', url: GICON, size: '44px', aspectMode: 'fit', aspectRatio: '1:1', flex: 0 },
         { type: 'box', layout: 'vertical', flex: 5, contents: [
           { type: 'box', layout: 'horizontal', contents: [
             { type: 'text', text: `เฉลี่ย ${f(g.avg)}`, size: 'md', weight: 'bold', color: wqColor(P, g.avg), flex: 0 },
             { type: 'text', text: ` · ${RL} ${f(g.risk)} ${P.unit}`, size: 'xs', color: wqColor(P, g.risk), flex: 0, gravity: 'bottom' } ] },
-          { type: 'text', text: `น้ำออกจากโรงงาน 4 แห่ง · มีข้อมูล ${g.n}/${g.tot} สถานี`, size: 'xxs', color: COLORS.textSecondary },
+          { type: 'text', text: `${kind === 'pump' ? 'สถานีสูบจ่ายน้ำ ฝั่งตะวันตก/ตะวันออก' : 'น้ำออกจากโรงงาน 4 แห่ง'} · มีข้อมูล ${g.n}/${g.tot} สถานี`, size: 'xxs', color: COLORS.textSecondary },
         ] },
       ] },
       { type: 'box', layout: 'horizontal', margin: 'sm', contents: [
@@ -1808,13 +1832,13 @@ async function replyParamPlants(replyToken, pk, dayOffset = 0) {
         { type: 'text', text: 'เฉลี่ย', size: 'xxs', color: COLORS.textMuted, flex: 2, align: 'end' },
         { type: 'text', text: RL, size: 'xxs', color: COLORS.textMuted, flex: 2, align: 'end' } ] },
     ];
-    TUR_PLANTS.forEach(p => {
+    GROUPS.forEach(p => {
       const pg = wqGroup(P, p.ids, S);
       body.push({ type: 'box', layout: 'horizontal', margin: 'md', contents: [
-        { type: 'text', text: `▸ ${p.name}`, size: 'sm', weight: 'bold', color: '#1d4ed8', flex: 6 },
+        { type: 'text', text: `▸ ${p.name}`, size: 'sm', weight: 'bold', color: GCOL, flex: 6 },
         { type: 'text', text: f(pg.avg), size: 'sm', weight: 'bold', color: wqColor(P, pg.avg), flex: 2, align: 'end' },
         { type: 'text', text: f(pg.risk), size: 'sm', weight: 'bold', color: wqColor(P, pg.risk), flex: 2, align: 'end' } ] });
-      body.push({ type: 'separator', color: '#1d4ed8' });
+      body.push({ type: 'separator', color: GCOL });
       p.ids.forEach(id => { const d = S[id], rv = wqRiskVal(P, d);
         body.push({ type: 'box', layout: 'horizontal', paddingTop: '3px', paddingBottom: '3px', contents: [
           { type: 'text', text: `${wqDot(P, d && d.avg)} ${TUR_STATIONS[id][0]}`, size: 'xs', color: COLORS.textPrimary, flex: 6, wrap: true },
@@ -1823,9 +1847,9 @@ async function replyParamPlants(replyToken, pk, dayOffset = 0) {
     });
     body.push({ type: 'text', text: `เกณฑ์ 🟢 ${P.legend[0]} · 🟡 ${P.legend[1]} · 🔴 ${P.legend[2]} ${P.unit} · ⚪ ไม่มีข้อมูล`, size: 'xxs', color: COLORS.textMuted, margin: 'md', wrap: true });
     return lineReply(replyToken, withQuickReply([{
-      type: 'flex', altText: `${P.title} โรงงานผลิตน้ำ ${R.label} — เฉลี่ย ${f(g.avg)} ${RL} ${f(g.risk)} ${P.unit}`,
+      type: 'flex', altText: `${P.title} ${GTITLE} ${R.label} — เฉลี่ย ${f(g.avg)} ${RL} ${f(g.risk)} ${P.unit}`,
       contents: { type: 'bubble', size: 'mega',
-        header: turHeader(`${P.title.split(' ')[0]} ${P.short} — โรงงานผลิตน้ำ`, dayOffset < 0 ? `${R.label} (ทั้งวัน)` : `${R.label} · 0.00–${thaiTime()} น.`),
+        header: turHeader(`${P.title.split(' ')[0]} ${P.short} — ${GTITLE}`, dayOffset < 0 ? `${R.label} (ทั้งวัน)` : `${R.label} · 0.00–${thaiTime()} น.`),
         body: { type: 'box', layout: 'vertical', paddingAll: '10px', paddingTop: '8px', contents: body },
         footer: { type: 'box', layout: 'vertical', paddingAll: '6px', contents: [
           { type: 'button', style: 'primary', height: 'sm', color: '#0f172a', action: { type: 'message', label: `↩ กลับภาพรวม${P.short}`, text: dayOffset < 0 ? P.yCmd : P.cmd } } ] },
@@ -1833,7 +1857,7 @@ async function replyParamPlants(replyToken, pk, dayOffset = 0) {
     }]));
   } catch (err) {
     console.error(`[WQ:${pk}] plants error:`, err);
-    return lineReply(replyToken, withQuickReply([{ type: 'text', text: `❌ ${P.short}โรงงานผลิตน้ำ error: ` + err.message }]));
+    return lineReply(replyToken, withQuickReply([{ type: 'text', text: `❌ ${P.short}${GTITLE} error: ` + err.message }]));
   }
 }
 
