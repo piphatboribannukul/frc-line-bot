@@ -1601,9 +1601,9 @@ async function replyTurbiditySummary(replyToken, dayOffset = 0) { return replyPa
 // ═══════════════════════════════════════════════════════════════════════════════
 const WQP = {
   tub: { key: 'tub', node: 'history_wq', field: 'tub', short: 'ความขุ่น', title: '💧 ความขุ่นน้ำประปา', rTitle: 'รายงานความขุ่นน้ำประปาเฉลี่ย', en: 'Turbidity', unit: 'NTU', dec: 2,
-    cls: v => v <= 4 ? 'g' : v <= 5 ? 'y' : 'r', valid: v => v > 0 && v < 1000,   // 0.00 พอดี = เซนเซอร์ error/ไม่มีข้อมูล
+    cls: v => v < 1 ? 'g' : v <= 4 ? 'y' : 'r', valid: v => v > 0 && v < 1000,   // เกณฑ์ กปน. (ต.ค.69): เขียว <1 · เหลือง 1–4 · แดง >4 NTU   // 0.00 พอดี = เซนเซอร์ error/ไม่มีข้อมูล
     risk: 'max', exceed: d => d.max > 4, exceedText: 'ค่าสูงสุดเกิน 4 NTU', ringLabel: 'มีช่วงเกิน 4',
-    legend: ['≤ 4', '> 4–5', '> 5'], cnt: ['เขียว ≤4', 'เหลือง >4–5', 'แดง >5'], pass: '≤4 NTU',
+    legend: ['< 1', '1–4', '> 4'], cnt: ['เขียว <1', 'เหลือง 1–4', 'แดง >4'], pass: '<1 NTU',
     cmd: 'สรุปความขุ่น', yCmd: 'ขุ่นเมื่อวาน', regionCmd: 'ขุ่นบริการ', plantCmd: 'ขุ่นโรงงาน', pumpCmd: 'ขุ่นสูบจ่าย', since: 'เริ่มเก็บข้อมูลความขุ่นตั้งแต่ 3 ต.ค. 69 16:12 น.' },
   frc: { key: 'frc', node: 'history', field: 'frc', short: 'คลอรีน', title: '🧪 คลอรีนอิสระคงเหลือ', rTitle: 'รายงานคลอรีนอิสระคงเหลือเฉลี่ย', en: 'FRC', unit: 'mg/L', dec: 2,
     cls: v => (v < 0.01 || v > 5) ? 'r' : (v < 0.2 || v > 2) ? 'y' : 'g', valid: v => v > 0 && v < 20,   // 0.00 พอดี = เซนเซอร์ error (TWQMS แสดง E) / poll.yml เขียน 0 แทนค่าว่าง → ไม่นำมาคำนวณ
@@ -1724,6 +1724,15 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
       { type: 'text', size: 'md', align: 'end', gravity: 'center', contents: [{ type: 'span', text: 'เฉลี่ย', size: 'xxs', color: COLORS.textSecondary }] },
       { type: 'text', text: RL, size: 'xxs', color: COLORS.textSecondary, align: 'end' },
     ] };
+    // หัวคอลัมน์ "เฉลี่ย / สูงสุด" — โครงเดียวกับแถวข้อมูล (flex/padding/spacing เท่ากัน) จึงตรงคอลัมน์พอดี
+    const colHead = withBadge => ({ type: 'box', layout: 'horizontal', paddingStart: '5px', paddingEnd: '5px', spacing: 'sm', margin: 'xs', contents: [
+      ...(withBadge ? [{ type: 'box', layout: 'vertical', flex: 0, width: '22px', contents: [] }] : []),
+      { type: 'text', text: ' ', size: 'xxs', flex: 4 },
+      { type: 'text', text: ' ', size: 'xxs', flex: 3 },
+      { type: 'text', text: 'เฉลี่ย', size: 'xxs', color: COLORS.textSecondary, flex: 3, align: 'end' },
+      { type: 'text', text: RL, size: 'xxs', color: COLORS.textSecondary, flex: 3, align: 'end' },
+      { type: 'text', text: '›', size: 'sm', color: '#ffffff00', flex: 0 },
+    ] });
     // สถานีสูบจ่าย: ฝั่งตะวันตก/ตะวันออก (แตะ → รายสถานี)
     const pumpLine = p => { const g = wqGroup(P, p.ids, S); return {
       type: 'box', layout: 'horizontal', margin: 'xs', paddingAll: '5px', cornerRadius: '6px', backgroundColor: '#ffffffb3', spacing: 'sm',
@@ -1760,22 +1769,17 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
       ] } ] };
     const body = [
       timeBar,
-      { type: 'box', layout: 'horizontal', margin: 'sm', spacing: 'sm', contents: [
-        makeCountBox(P.cnt[0], C.g, COLORS.good), makeCountBox(P.cnt[1], C.y, COLORS.warn), makeCountBox(P.cnt[2], C.r, COLORS.bad),
-      ] },
-      { type: 'separator', margin: 'sm' },
-      stat(`${P.short}เฉลี่ย`, G.avg),
-      stat(`ค่า${RL}`, G.risk),
-      { type: 'separator', margin: 'sm' },
       bigBlock(IMAGES.iconSend, 'โรงงานผลิตน้ำ', '#dbeafe', null, [
         { type: 'box', layout: 'horizontal', spacing: 'xs', contents: [rowLabels, ...TUR_PLANTS.map(plantCell)] },
         { type: 'text', text: 'แตะเพื่อดูรายสถานี ›', size: 'xxs', color: '#1d4ed8', margin: 'sm' },
       ]),
-      bigBlock(IMAGES.iconPump, 'สถานีสูบจ่ายน้ำ', '#d1fae5', `เฉลี่ย · ${RL}`, [
+      bigBlock(IMAGES.iconPump, 'สถานีสูบจ่ายน้ำ', '#d1fae5', null, [
+        colHead(false),
         ...TUR_PUMPS.map(pumpLine),
         { type: 'text', text: 'แตะเพื่อดูรายสถานี ›', size: 'xxs', color: '#047857', margin: 'sm' },
       ]),
-      bigBlock(IMAGES.iconMonitor, 'น้ำในระบบจ่าย', '#ede9fe', `เฉลี่ย · ${RL}`, [
+      bigBlock(IMAGES.iconMonitor, 'น้ำในระบบจ่าย', '#ede9fe', null, [
+        colHead(true),
         ...TUR_REGIONS.map(regionLine),
         { type: 'text', text: 'แตะแต่ละภาคเพื่อดูรายสถานี ›', size: 'xxs', color: '#7c3aed', margin: 'sm' },
       ]),
