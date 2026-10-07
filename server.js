@@ -402,9 +402,9 @@ function quickReplyItems(subset) {
     search:   { type: 'action', action: { type: 'message', label: '🔍 ค้นหาสถานที่', text: 'ค้นหาสถานที่' } },
     location: { type: 'action', action: { type: 'location', label: '📍 ตำแหน่งปัจจุบัน' } },
     map:      { type: 'action', action: { type: 'uri', label: '🗺️ แผนที่', uri: CONTOUR_URL } },
-    chlorine: { type: 'action', action: { type: 'message', label: '💧 คลอรีน', text: 'คลอรีน' } },
+    chlorine: { type: 'action', action: { type: 'message', label: '🧪 คลอรีน', text: 'สรุปคลอรีน' } },
     daily:    { type: 'action', action: { type: 'message', label: '📊 สรุปวัน', text: 'สรุปวัน' } },
-    ec:       { type: 'action', action: { type: 'message', label: '⚡ EC', text: 'ec' } },
+    ec:       { type: 'action', action: { type: 'message', label: '⚡ EC', text: 'สรุป EC' } },
     turb:     { type: 'action', action: { type: 'message', label: "💧 ความขุ่น", text: 'สรุปความขุ่น' } },
     table:    { type: 'action', action: { type: 'message', label: '📋 ตาราง', text: 'ตารางวัน' } },
     low:      { type: 'action', action: { type: 'message', label: '🔴 สถานีต่ำ', text: 'สถานีต่ำ' } },
@@ -790,6 +790,12 @@ async function handleTextMessage(replyToken, text, userId, sourceType = 'user') 
   // ── เมนูรายงานคุณภาพน้ำ: "สรุป" / "สรุปคุณภาพน้ำ" / "สรุปค่า" / "รายงานคุณภาพน้ำ" → เลือก คลอรีน / ความขุ่น / ความนำไฟฟ้า
   //    (สรุปคลอรีน / สรุป FRC → การ์ดคลอรีน [กฎ /คลอรีน|frc/ ด้านล่าง], สรุปความขุ่น / สรุปขุ่น → การ์ดความขุ่น)
   { const t = msg.replace(/\s+/g, '');
+    // ── [ต.ค.69] คำสั้น "คลอรีน" / "ec" → ระบบสรุปใหม่ (ค่าเฉลี่ยวันนี้ + แผนที่ + บริการ 1–5)
+    //    การ์ด Real-Time เดิม (ค่า ณ ตอนนี้ · สูบส่ง/สูบจ่าย/Monitor) ยังเรียกได้: "คลอรีนตอนนี้" / "ค่าปัจจุบัน" / "สถานะ"
+    if (/^(คลอรีน|คลอรีนอิสระ|คลอรีนอิสระคงเหลือ|frc|chlorine)$/i.test(t)) return replyParamSummary(replyToken, 'frc', 0);
+    if (/^(ec|ความนำไฟฟ้า|ความนำ|ค่าec|conductivity)$/i.test(t)) return replyParamSummary(replyToken, 'ec', 0);
+    if (/^(คลอรีน|frc)(ตอนนี้|ปัจจุบัน|realtime|เรียลไทม์)$|^ค่าปัจจุบัน$/i.test(t)) return replyCurrentStatus(replyToken);
+    if (/^(ec|ความนำไฟฟ้า)(ตอนนี้|ปัจจุบัน|realtime|เรียลไทม์)$/i.test(t)) return replyECStatus(replyToken);
     // ── ตัด/คืนค่าสถานี: "ตัดค่า คลอรีน ศิริราช [เหตุผล]" · "คืนค่า คลอรีน ศิริราช" · "รายการตัดค่า"
     { const m = msg.trim().match(/^(ตัดค่า|คืนค่า)\s+(คลอรีน|frc|ขุ่น|ความขุ่น|ec|ความนำไฟฟ้า)\s+(\S+)\s*(.*)$/i);
       if (m) {
@@ -2246,7 +2252,7 @@ async function replyDailyTable(replyToken) {
       ]
     },
     footer: makeFooterButtons([
-      { label: 'ดูค่าปัจจุบัน', text: 'คลอรีน', primary: true },
+      { label: 'ดูค่าปัจจุบัน', text: 'คลอรีนตอนนี้', primary: true },
       { label: 'แผนที่', uri: CONTOUR_URL }
     ])
   };
