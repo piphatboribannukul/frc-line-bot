@@ -759,7 +759,13 @@ function buildDailyReportFlex({ total, good, mid, low, avgFrc, minS, maxS, lowSt
 
 // คำสั่งที่บอทจะตอบเมื่ออยู่ใน "กลุ่ม/ห้อง" — ข้อความอื่นของคนในกลุ่มปล่อยผ่านเงียบ ๆ
 // (แชท 1:1 ตอบทุกอย่างเหมือนเดิม รวม fallback เมนู)
-const GROUP_COMMANDS = /^(แจ้งซ่อม|เซ็นเซอร์|วาระเปลี่ยน|เปลี่ยนเซ็นเซอร์|เมนู|help|สถานะ|คลอรีน|frc)/i;   // ห้ามใช้ \b กับภาษาไทย
+const GROUP_COMMANDS = {
+  // คำสั่งที่มีอาร์กิวเมนต์ต่อท้าย → ขึ้นต้นด้วยคำเหล่านี้
+  prefix: /^(แจ้งซ่อม|เซ็นเซอร์|วาระเปลี่ยน|เปลี่ยนเซ็นเซอร์|ตรวจจุด|ตัดจุด|ตัดสูงสุด|คืนจุด|ตัดชม|คืนชม|ตัดค่า|คืนค่า|ค้นหาสถานที่)/i,
+  // คำสั่งสั้น → ต้องตรงทั้งข้อความ (ตัดช่องว่าง) กันบอทตอบแชททั่วไปในกลุ่ม เช่น "สรุปว่า…" "ขุ่นมาก"
+  whole: /^(เมนู|help|วิธีใช้|คำสั่ง|สถานะ|คลอรีน|คลอรีนอิสระ|frc|ec|ความนำไฟฟ้า|ความนำ|สรุป|สรุปค่า|สรุปคุณภาพน้ำ|รายงานคุณภาพน้ำ|คุณภาพน้ำ|สรุปรายงาน|สรุปวัน|ตารางวัน|ตารางสรุปวัน|สถานีต่ำ|ค่าปัจจุบัน|(คลอรีน|frc|ec|ความนำไฟฟ้า)(ตอนนี้|ปัจจุบัน)|สรุป(คลอรีน|frc|ความขุ่น|ขุ่น|ec|ความนำไฟฟ้า|ความนำ)(วันนี้|เมื่อวาน)?|(สรุป)?(ความ)?ขุ่น(วันนี้)?|(ขุ่น|ความขุ่น|คลอรีน|frc|ec|ความนำไฟฟ้า|ความนำ)(เมื่อวาน|โรงงาน|สูบจ่าย|บริการ[1-5])(เมื่อวาน)?|(เช็คเกิน|เช็กเกิน|ตรวจเกิน|เกินเกณฑ์|เกิน4)(คลอรีน|frc|ขุ่น|ความขุ่น|ec|ความนำไฟฟ้า)?(เมื่อวาน)?|รายการตัดค่า|โควตา|ส่งสรุปเช้า|ใกล้ฉัน)$/i,
+  test(msg) { return this.prefix.test(msg) || this.whole.test(msg.replace(/\s+/g, '')); },
+};
 
 async function handleTextMessage(replyToken, text, userId, sourceType = 'user') {
   const msg = text.trim();
@@ -3070,49 +3076,70 @@ function replyMenuCarousel(replyToken) {
 }
 
 function makeHelpRow(emoji, cmd, desc) {
+  const tappable = !/[<\[…]/.test(cmd);   // คำสั่งที่ไม่มีช่องให้กรอก → แตะแล้วส่งคำสั่งได้เลย
   return {
     type: "box", layout: "horizontal", spacing: "md", margin: "sm",
+    ...(tappable ? { action: { type: 'message', label: cmd.slice(0, 20), text: cmd } } : {}),
     contents: [
-      { type: "text", text: emoji, size: "md", flex: 0 },
-      { type: "text", text: `"${cmd}"`, size: "sm", weight: "bold", color: COLORS.accent, flex: 2 },
-      { type: "text", text: desc, size: "xs", color: COLORS.textSecondary, flex: 5, wrap: true }
+      { type: "text", text: emoji, size: "sm", flex: 0 },
+      { type: "text", text: cmd, size: "xs", weight: "bold", color: COLORS.accent, flex: 5, wrap: true },
+      { type: "text", text: desc, size: "xxs", color: COLORS.textSecondary, flex: 6, wrap: true, gravity: 'center' }
     ]
   };
 }
 
 function replyHelp(replyToken) {
-  return lineReply(replyToken, withQuickReply([{
-    type: "flex", altText: "📖 วิธีใช้งาน FRC Bot",
-    contents: {
-      type: "bubble", size: "mega",
-      header: makeHeader('💧 FRC Chlorine Bot v12', 'ระบบติดตามคลอรีนอิสระคงเหลือ', COLORS.headerDark, IMAGES.logo),
-      body: {
-        type: "box", layout: "vertical", paddingAll: "14px", spacing: "md",
-        contents: [
-          { type: "text", text: "📱 คำสั่งหลัก", weight: "bold", size: "sm", color: COLORS.textPrimary },
-          makeHelpRow("💧", "คลอรีน", "ดูค่า FRC แยกสูบส่ง/สูบจ่าย/Monitor"),
-          makeHelpRow("⚡", "ec", "ดูค่า EC (ค่าการนำไฟฟ้า)"),
-          makeHelpRow("📊", "สรุปวัน", "สรุปประจำวันแบบผู้บริหาร"),
-          makeHelpRow("📋", "ตารางวัน", "ตาราง FRC แยกตามเขตรับน้ำ"),
-          makeHelpRow("🔴", "สถานีต่ำ", "ดูสถานีที่ค่าต่ำกว่าเกณฑ์"),
-          { type: "separator" },
-          { type: "text", text: "🔍 ค้นหา & แผนที่", weight: "bold", size: "sm", color: COLORS.textPrimary },
-          makeHelpRow("🔍", "ค้นหาสถานที่ [ชื่อ]", "บินไปในแผนที่ Contour"),
-          makeHelpRow("📍", "ใกล้ฉัน", "ส่งตำแหน่ง → ดูสถานีใกล้"),
-          { type: "separator" },
-          { type: "text", text: "🔔 แจ้งเตือน", weight: "bold", size: "sm", color: COLORS.textPrimary },
-          makeHelpRow("📢", "ส่งแจ้งเตือน", "ส่ง Push แจ้งเตือนค่าผิดปกติ Manual"),
-          { type: "text", text: "อัตโนมัติ: ตรวจวันละครั้ง 08:00 น. · แจ้งเฉพาะค่าต่ำ · รวมทุกสถานีในข้อความเดียว", size: "xxs", color: COLORS.textMuted, wrap: true },
-          { type: "text", text: "สูบส่ง: ดี>1.0 ต่ำ<0.5 | สูบจ่าย: ดี>0.8 ต่ำ<0.5", size: "xxs", color: COLORS.textMuted, wrap: true },
-          { type: "text", text: "Monitor: ดี>0.4 ต่ำ<0.2", size: "xxs", color: COLORS.textMuted, wrap: true },
-        ]
-      },
-      footer: makeFooterButtons([
-        { label: '💧 คลอรีน', text: 'คลอรีน', primary: true },
-        { label: '📊 สรุปวัน', text: 'สรุปวัน' }
-      ])
-    }
-  }], ['chlorine', 'daily', 'ec', 'low', 'map', 'location']));
+  const sec = t => ({ type: 'text', text: t, weight: 'bold', size: 'sm', color: COLORS.textPrimary, margin: 'md' });
+  const note = t => ({ type: 'text', text: t, size: 'xxs', color: COLORS.textMuted, wrap: true });
+  const page = (title, sub, rows) => ({ type: 'bubble', size: 'mega',
+    header: turHeader(title, sub),
+    body: { type: 'box', layout: 'vertical', paddingAll: '12px', spacing: 'sm', contents: rows } });
+  const b1 = page('📖 คำสั่ง (1/3) รายงาน', 'แตะ/พิมพ์ได้ทั้งแชทส่วนตัวและในกลุ่ม', [
+    sec('📊 สรุปคุณภาพน้ำ (ค่าเฉลี่ยวันนี้ 00:00–ปัจจุบัน)'),
+    makeHelpRow('📊', 'สรุป', 'เมนูเลือก คลอรีน / ความขุ่น / EC'),
+    makeHelpRow('🧪', 'คลอรีน', 'สรุปคลอรีน + แผนที่ + บริการ 1–5'),
+    makeHelpRow('💧', 'สรุปความขุ่น', 'สรุปความขุ่น (หรือ "ขุ่น")'),
+    makeHelpRow('⚡', 'ec', 'สรุปความนำไฟฟ้า'),
+    makeHelpRow('📅', 'ขุ่นเมื่อวาน', 'ทั้งวันของเมื่อวาน (คลอรีนเมื่อวาน / ECเมื่อวาน)'),
+    sec('🔎 รายละเอียด (หรือแตะในการ์ด)'),
+    makeHelpRow('🏭', 'ขุ่นโรงงาน', 'รายสถานี โรงงานผลิตน้ำ 4 แห่ง'),
+    makeHelpRow('🚰', 'ขุ่นสูบจ่าย', 'สถานีสูบจ่าย ฝั่งตะวันตก/ตะวันออก'),
+    makeHelpRow('🗺', 'ขุ่นบริการ 1', 'รายสถานีของบริการ 1–5'),
+    note('เปลี่ยน "ขุ่น" เป็น "คลอรีน" หรือ "EC" ได้ เช่น คลอรีนบริการ 3 · ECสูบจ่าย'),
+    sec('⏱ ค่า ณ ตอนนี้ (การ์ดแบบเดิม)'),
+    makeHelpRow('🧪', 'คลอรีนตอนนี้', 'ค่า Real-Time สูบส่ง/สูบจ่าย/Monitor'),
+    makeHelpRow('⚡', 'EC ตอนนี้', 'ค่า EC ล่าสุด'),
+    makeHelpRow('📋', 'ตารางวัน', 'ตาราง FRC แยกเขตรับน้ำ'),
+  ]);
+  const b2 = page('📖 คำสั่ง (2/3) คลีนข้อมูล', 'ตัดแล้วข้อมูลดิบยังอยู่ · คืนได้ทุกเมื่อ', [
+    sec('✂️ ตัดเฉพาะจุด/ชั่วโมงที่ผิดปกติ'),
+    makeHelpRow('🔎', 'เช็คเกิน', 'รายการชั่วโมงที่ขุ่น > 4 ทุกสถานี → กด "ตัด ชม."'),
+    makeHelpRow('🔍', 'ตรวจจุด ขุ่น SW06', 'ดูจุดสูงสุดของสถานี → กด "ตัด"'),
+    makeHelpRow('✂️', 'ตัดจุด ขุ่น SW06 01:30', 'ตัดจุดตามเวลา (ไม่ใส่เวลา = จุดสูงสุด)'),
+    makeHelpRow('✂️', 'ตัดชม ขุ่น SW06 02:00', 'ตัดทั้งชั่วโมง 01:00–02:00 น.'),
+    makeHelpRow('↩️', 'คืนจุด / คืนชม …', 'คืนข้อมูลกลับเข้าการคำนวณ'),
+    note('ใช้กับ คลอรีน / ec ได้ · ต่อท้าย "เมื่อวาน" เพื่อแก้ข้อมูลเมื่อวาน · ใช้ชื่อหรือรหัสสถานีได้'),
+    sec('🚫 ตัดทั้งสถานี (เซนเซอร์เสีย/ค่าค้าง)'),
+    makeHelpRow('🚫', 'ตัดค่า คลอรีน ศิริราช ค่าค้าง', 'ไม่นำสถานีไปคิดจนกว่าจะคืน'),
+    makeHelpRow('✅', 'คืนค่า คลอรีน ศิริราช', 'นำกลับเมื่อซ่อมเสร็จ'),
+    makeHelpRow('📋', 'รายการตัดค่า', 'ดูสถานีที่ตัดอยู่'),
+  ]);
+  const b3 = page('📖 คำสั่ง (3/3) อื่นๆ', 'แจ้งซ่อม · ส่งข้อความ · แผนที่', [
+    sec('🌅 สรุปเช้าอัตโนมัติ'),
+    note('ทุกวัน 08:00 น. ส่งสรุปความขุ่น 00:00–08:00 น. ให้ทุกคน (ถ้าบอทรีสตาร์ทตรง 08:00 จะส่งชดเชยภายใน 10:00 น.)'),
+    makeHelpRow('📊', 'โควตา', 'โควตาข้อความ LINE เดือนนี้ + ผลส่งสรุปเช้าล่าสุด'),
+    makeHelpRow('📢', 'ส่งสรุปเช้า', 'ส่งสรุปความขุ่นให้ทุกคนทันที (ใช้โควตา)'),
+    sec('🔧 แจ้งซ่อม / เซ็นเซอร์'),
+    makeHelpRow('🔧', 'แจ้งซ่อม', 'สรุปใบแจ้งซ่อมวันนี้'),
+    makeHelpRow('🔧', 'แจ้งซ่อม <สถานี> <อาการ>', 'ออกใบแจ้งซ่อม + ส่งเมล'),
+    makeHelpRow('🗓', 'เซ็นเซอร์', 'วาระเปลี่ยนเซ็นเซอร์/อุปกรณ์'),
+    sec('🗺 แผนที่ & ค้นหา'),
+    makeHelpRow('🔍', 'ค้นหาสถานที่ [ชื่อ]', 'บินไปในแผนที่ Contour'),
+    makeHelpRow('📍', 'ใกล้ฉัน', 'ส่งตำแหน่ง → ดูสถานีใกล้'),
+    note('เกณฑ์ความขุ่น 🟢 <1 · 🟡 1–4 · 🔴 >4 NTU · คลอรีน 🟢 0.2–2.0 mg/L · EC 🟢 ≤500 µS/cm'),
+  ]);
+  return lineReply(replyToken, withQuickReply([{ type: 'flex', altText: '📖 คำสั่งทั้งหมดของบอท (เลื่อน → 3 หน้า)', contents: { type: 'carousel', contents: [b1, b2, b3] } }],
+    ['chlorine', 'turb', 'ec', 'map', 'location']));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
