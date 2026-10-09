@@ -816,6 +816,8 @@ async function handleTextMessage(replyToken, text, userId, sourceType = 'user') 
   // ── วาระเปลี่ยนเซ็นเซอร์/อุปกรณ์ (ถามสถานะได้ทุกเมื่อ ไม่ต้องรอ cron วันที่ 1)
   // ── เมนูรายงานคุณภาพน้ำ: "สรุป" / "สรุปคุณภาพน้ำ" / "สรุปค่า" / "รายงานคุณภาพน้ำ" → เลือก คลอรีน / ความขุ่น / ความนำไฟฟ้า
   //    (สรุปคลอรีน / สรุป FRC → การ์ดคลอรีน [กฎ /คลอรีน|frc/ ด้านล่าง], สรุปความขุ่น / สรุปขุ่น → การ์ดความขุ่น)
+  if (/^(ตรวจจุด|ตัดจุด|ตัดสูงสุด|คืนจุด)\s/.test(msg.trim()) && await handlePointCmd(replyToken, userId, msg)) return;
+  if (/^(เช็คเกิน|เช็กเกิน|ตรวจเกิน|เกินเกณฑ์|เกิน4|ตัดชม|คืนชม)/.test(msg.trim()) && await handleHourCmd(replyToken, userId, msg)) return;
   { const t = msg.replace(/\s+/g, '');
     // ── โควตา / สถานะสรุปเช้า (ตอบด้วย reply = ไม่เสียโควตา) · "ส่งสรุปเช้า" = ส่งซ้ำทันที (ใช้โควตา)
     if (/^(โควตา|quota|สถานะสรุปเช้า)$/i.test(t)) {
@@ -1643,17 +1645,17 @@ async function replyTurbiditySummary(replyToken, dayOffset = 0) { return replyPa
 // ข้อมูล: ความขุ่น = history_wq/{สถานี}/{ts}.tub · คลอรีน/EC = history/{สถานี}/{ts}.frc/.ec (collector ทุก 15 นาที)
 // ═══════════════════════════════════════════════════════════════════════════════
 const WQP = {
-  tub: { key: 'tub', node: 'history_wq', field: 'tub', short: 'ความขุ่น', title: '💧 ความขุ่นน้ำประปา', rTitle: 'รายงานความขุ่นน้ำประปาเฉลี่ย', en: 'Turbidity', unit: 'NTU', dec: 2,
+  tub: { key: 'tub', node: 'history_wq', field: 'tub', short: 'ความขุ่น', cmdWord: 'ขุ่น', title: '💧 ความขุ่นน้ำประปา', rTitle: 'รายงานความขุ่นน้ำประปาเฉลี่ย', en: 'Turbidity', unit: 'NTU', dec: 2,
     cls: v => v < 1 ? 'g' : v <= 4 ? 'y' : 'r', valid: v => v > 0 && v < 1000,   // เกณฑ์ กปน. (ต.ค.69): เขียว <1 · เหลือง 1–4 · แดง >4 NTU   // 0.00 พอดี = เซนเซอร์ error/ไม่มีข้อมูล
     risk: 'max', exceed: d => d.max > 4, exceedText: 'ค่าสูงสุดเกิน 4 NTU', ringLabel: 'มีช่วงเกิน 4',
     legend: ['< 1', '1–4', '> 4'], cnt: ['เขียว <1', 'เหลือง 1–4', 'แดง >4'], pass: '<1 NTU',
     cmd: 'สรุปความขุ่น', yCmd: 'ขุ่นเมื่อวาน', regionCmd: 'ขุ่นบริการ', plantCmd: 'ขุ่นโรงงาน', pumpCmd: 'ขุ่นสูบจ่าย', since: 'เริ่มเก็บข้อมูลความขุ่นตั้งแต่ 3 ต.ค. 69 16:12 น.' },
-  frc: { key: 'frc', node: 'history', field: 'frc', short: 'คลอรีน', title: '🧪 คลอรีนอิสระคงเหลือ', rTitle: 'รายงานคลอรีนอิสระคงเหลือเฉลี่ย', en: 'FRC', unit: 'mg/L', dec: 2,
+  frc: { key: 'frc', node: 'history', field: 'frc', short: 'คลอรีน', cmdWord: 'คลอรีน', title: '🧪 คลอรีนอิสระคงเหลือ', rTitle: 'รายงานคลอรีนอิสระคงเหลือเฉลี่ย', en: 'FRC', unit: 'mg/L', dec: 2,
     cls: v => (v < 0.01 || v > 5) ? 'r' : (v < 0.2 || v > 2) ? 'y' : 'g', valid: v => v > 0 && v < 20,   // 0.00 พอดี = เซนเซอร์ error (TWQMS แสดง E) / poll.yml เขียน 0 แทนค่าว่าง → ไม่นำมาคำนวณ
     risk: 'min', exceed: d => d.min < 0.2 || d.max > 2, exceedText: 'มีช่วงนอกเกณฑ์ 0.2–2.0 mg/L', ringLabel: 'มีช่วงนอก 0.2–2',
     legend: ['0.2–2.0', '<0.2 / 2–5', 'ไม่พบ / >5'], cnt: ['เขียว 0.2–2', 'เหลือง', 'แดง'], pass: '0.2–2.0 mg/L',
     cmd: 'สรุปคลอรีน', yCmd: 'คลอรีนเมื่อวาน', regionCmd: 'คลอรีนบริการ', plantCmd: 'คลอรีนโรงงาน', pumpCmd: 'คลอรีนสูบจ่าย', since: 'ข้อมูลย้อนหลังเก็บ 7 วัน' },
-  ec: { key: 'ec', node: 'history', field: 'ec', short: 'ความนำไฟฟ้า', title: '⚡ ความนำไฟฟ้า', rTitle: 'รายงานความนำไฟฟ้าเฉลี่ย', en: 'EC', unit: 'µS/cm', dec: 0,
+  ec: { key: 'ec', node: 'history', field: 'ec', short: 'ความนำไฟฟ้า', cmdWord: 'ec', title: '⚡ ความนำไฟฟ้า', rTitle: 'รายงานความนำไฟฟ้าเฉลี่ย', en: 'EC', unit: 'µS/cm', dec: 0,
     cls: v => v <= 500 ? 'g' : v <= 1200 ? 'y' : 'r', valid: v => v > 0 && v < 100000,
     risk: 'max', exceed: d => d.max > 500, exceedText: 'ค่าสูงสุดเกิน 500 µS/cm', ringLabel: 'มีช่วงเกิน 500',
     legend: ['≤ 500', '501–1,200', '> 1,200'], cnt: ['เขียว ≤500', 'เหลือง ≤1,200', 'แดง >1,200'], pass: '≤500 µS/cm',
@@ -1679,11 +1681,27 @@ async function getWqExclude() {
   try { _wqEx = { t: Date.now(), v: (await db.ref('wq_exclude').once('value')).val() || {} }; } catch (e) { console.error('[WQ] exclude load', e.message); }
   return _wqEx.v;
 }
+// ✂️ ตัดเฉพาะ "จุดข้อมูล" (ไม่ตัดทั้งสถานี) — ผู้ใช้เลือกเองผ่าน LINE: wq_ptex/{tub|frc|ec}/{สถานี}/{key} = { v, by, t }
+let _wqPx = { t: 0, v: {} };
+async function getWqPtEx() {
+  if (Date.now() - _wqPx.t < 60000) return _wqPx.v;
+  try { _wqPx = { t: Date.now(), v: (await db.ref('wq_ptex').once('value')).val() || {} }; } catch (e) { console.error('[WQ] ptex load', e.message); }
+  return _wqPx.v;
+}
+const wqResetCache = () => { _wqEx.t = 0; _wqPx.t = 0; Object.keys(_wqCache).forEach(k => delete _wqCache[k]); };
+// จุดดิบของสถานีในช่วงเวลา (สำหรับหน้าตรวจจุด)
+async function loadRawPoints(P, id, startTs, endTs) {
+  let q = db.ref(`${P.node}/${id}`).orderByKey().startAt(String(startTs + 1));
+  if (endTs) q = q.endAt(String(endTs));
+  const v = (await q.once('value')).val() || {};
+  return Object.entries(v).map(([k, p]) => ({ k, ts: Number(p && p.ts) || Number(k), v: Number(p && p[P.field]) }))
+    .filter(x => isFinite(x.v) && P.valid(x.v)).sort((a, b) => a.ts - b.ts);
+}
 const _wqCache = {};
 async function loadParamStats(P, startTs, endTs) {
   const ck = `${P.key}-${startTs}-${endTs || ''}`, hit = _wqCache[ck];
   if (hit && Date.now() - hit.t < 120000) return hit.v;
-  const out = {}, EX = (await getWqExclude())[P.key] || {};
+  const out = {}, EX = (await getWqExclude())[P.key] || {}, PX = (await getWqPtEx())[P.key] || {};
   await Promise.all(Object.keys(TUR_STATIONS).filter(id => !EX[id]).map(async id => {
     try {
       // หลักท้ายชั่วโมง (hour-ending): ช่วงวัน = (00:00, 24:00] → ไม่รวมจุด 00:00 พอดีของวันนี้ (เป็นชั่วโมง 24:00 ของเมื่อวาน)
@@ -1692,9 +1710,10 @@ async function loadParamStats(P, startTs, endTs) {
       const v = (await q.once('value')).val() || {};
       // จัดกลุ่มรายชั่วโมงแบบ "ท้ายชั่วโมง": ชั่วโมง 01:00 = (00:00, 01:00] ฯลฯ → เฉลี่ยรายวัน = เฉลี่ยของค่าเฉลี่ยรายชั่วโมง
       //   สูงสุด/ต่ำสุด = จุดเดียวที่สูง/ต่ำที่สุดในช่วง (ไม่ขึ้นกับการจัดกลุ่ม)
-      let n = 0, max = null, maxTs = 0, min = null, minTs = 0; const hb = {};
-      for (const p of Object.values(v)) {
+      let n = 0, max = null, maxTs = 0, min = null, minTs = 0, cut = 0; const hb = {}, px = PX[id] || {};
+      for (const [pk, p] of Object.entries(v)) {
         if (!p) continue;
+        if (px[pk]) { cut++; continue; }   // จุดที่ผู้ใช้ตัดออกเอง
         const t = Number(p[P.field]);
         if (p[P.field] == null || !isFinite(t) || !P.valid(t)) continue;
         const hi = Math.ceil((Number(p.ts) - startTs) / 3600e3);   // 1..24
@@ -1703,7 +1722,7 @@ async function loadParamStats(P, startTs, endTs) {
         if (min == null || t < min) { min = t; minTs = p.ts; }
       }
       const hv = Object.values(hb).map(b => b.s / b.c);
-      if (n) out[id] = { avg: hv.reduce((a, x) => a + x, 0) / hv.length, max, maxTs, min, minTs, n, h: hv.length };
+      if (n) out[id] = { avg: hv.reduce((a, x) => a + x, 0) / hv.length, max, maxTs, min, minTs, n, h: hv.length, cut };
     } catch (e) { console.error(`[WQ:${P.key}] load`, id, e.message); }
   }));
   _wqCache[ck] = { t: Date.now(), v: out };
@@ -1840,10 +1859,13 @@ async function replyParamSummary(replyToken, pk, dayOffset = 0) {
     if (exceed.length) {
       body.push({ type: 'separator', margin: 'xs' });
       body.push({ type: 'box', layout: 'vertical', margin: 'xs', paddingAll: '8px', cornerRadius: '6px', backgroundColor: COLORS.bgWarm, contents: [
-        { type: 'text', text: `⚠️ ต้องติดตาม — ${P.exceedText} (${exceed.length})`, size: 'xxs', weight: 'bold', color: COLORS.bad, wrap: true },
+        { type: 'text', text: `⚠️ ต้องติดตาม — ${P.exceedText} (${exceed.length}) · เช็ค/ตัดรายชั่วโมง ›`, size: 'xxs', weight: 'bold', color: COLORS.bad, wrap: true,
+          action: { type: 'message', label: 'เช็คเกิน', text: `เช็คเกิน ${P.cmdWord}${dayOffset < 0 ? ' เมื่อวาน' : ''}` } },
         ...exceed.slice(0, 5).map(id => { const d = S[id], v = wqRiskVal(P, d), out = P.risk === 'min' && d.min >= 0.2 ? d.max : v, ts = out === d.max ? d.maxTs : d.minTs;
           return { type: 'text', size: 'xxs', color: COLORS.textSecondary, wrap: true,
-            text: `${wqDot(P, out)} ${wqShort(TUR_STATIONS[id][0])} — ${f(out)} ${P.unit} (${thaiTime(new Date(ts))} น.)` }; }),
+            action: { type: 'message', label: 'ตรวจจุด', text: `ตรวจจุด ${P.cmdWord} ${id}${dayOffset < 0 ? ' เมื่อวาน' : ''}` },
+            text: `${wqDot(P, out)} ${wqShort(TUR_STATIONS[id][0])} — ${f(out)} ${P.unit} (${thaiTime(new Date(ts))} น.) ›` }; }),
+        { type: 'text', text: 'แตะสถานีเพื่อตรวจ/ตัดจุดข้อมูลที่ผิดปกติ', size: 'xxs', color: COLORS.textMuted, margin: 'xs' },
       ] });
     }
     const exN = Object.keys((await getWqExclude())[P.key] || {}).length;
@@ -1898,7 +1920,8 @@ async function replyParamPlants(replyToken, pk, dayOffset = 0, kind = 'plant') {
       body.push({ type: 'separator', color: GCOL });
       p.ids.forEach(id => { const d = S[id], rv = wqRiskVal(P, d);
         body.push({ type: 'box', layout: 'horizontal', paddingTop: '3px', paddingBottom: '3px', contents: [
-          { type: 'text', text: `${wqDot(P, d && d.avg)} ${TUR_STATIONS[id][0]}`, size: 'xs', color: COLORS.textPrimary, flex: 6, wrap: true },
+          { type: 'text', text: `${wqDot(P, d && d.avg)} ${TUR_STATIONS[id][0]}${d && d.cut ? ` ✂️${d.cut}` : ''}`, size: 'xs', color: COLORS.textPrimary, flex: 6, wrap: true,
+          action: { type: 'message', label: 'ตรวจจุด', text: `ตรวจจุด ${P.cmdWord} ${id}${dayOffset < 0 ? ' เมื่อวาน' : ''}` } },
           { type: 'text', text: d ? f(d.avg) : '–', size: 'xs', weight: 'bold', color: wqColor(P, d && d.avg), flex: 2, align: 'end', gravity: 'center' },
           { type: 'text', text: d ? f(rv) : '–', size: 'xs', weight: 'bold', color: wqColor(P, rv), flex: 2, align: 'end', gravity: 'center' } ] }); });
     });
@@ -1918,6 +1941,154 @@ async function replyParamPlants(replyToken, pk, dayOffset = 0, kind = 'plant') {
   }
 }
 
+// ── ตรวจ/ตัดจุดข้อมูล ───────────────────────────────────────────────────────
+const WQ_ADMINS = (process.env.WQ_ADMINS || '').split(',').map(x => x.trim()).filter(Boolean);   // ว่าง = ทุกคนตัดได้
+const wqCanEdit = uid => !WQ_ADMINS.length || WQ_ADMINS.includes(uid);
+const wqParamOf = w => /ขุ่น|turb/i.test(w) ? 'tub' : /คลอรีน|frc/i.test(w) ? 'frc' : 'ec';
+const wqFindStation = q => { const k = Object.keys(TUR_STATIONS); const ex = k.find(id => id.toLowerCase() === q.toLowerCase()); return ex ? [ex] : k.filter(id => TUR_STATIONS[id][0].includes(q)); };
+const hhmm = ts => new Date(ts).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hour12: false });
+
+async function replyInspectPoints(replyToken, pk, id, dayOffset = 0, note = '') {
+  const P = WQP[pk], R = wqRange(dayOffset), f = v => wqFmt(P, v);
+  const pts = await loadRawPoints(P, id, R.start, R.end), px = ((await getWqPtEx())[pk] || {})[id] || {};
+  if (!pts.length) return lineReply(replyToken, withQuickReply([{ type: 'text', text: `ไม่มีข้อมูล${P.short}ของ ${TUR_STATIONS[id][0]}` }]));
+  const ok = pts.filter(p => !px[p.k]).map(p => p.v).sort((a, b) => a - b), med = ok.length ? ok[Math.floor(ok.length / 2)] : null;
+  const rank = [...pts].filter(p => !px[p.k]).sort((a, b) => P.risk === 'min' ? a.v - b.v : b.v - a.v).slice(0, 6);
+  const cutPts = pts.filter(p => px[p.k]);
+  const day = dayOffset < 0 ? ' เมื่อวาน' : '';
+  const row = (p, isCut) => {
+    const i = pts.indexOf(p), nb = [pts[i - 1], pts[i + 1]].filter(Boolean).map(x => f(x.v)).join(' / ');
+    return { type: 'box', layout: 'horizontal', spacing: 'sm', paddingAll: '5px', cornerRadius: '6px', backgroundColor: isCut ? '#f1f5f9' : '#ffffff', margin: 'xs', alignItems: 'center', contents: [
+      { type: 'text', text: `${hhmm(p.ts)} น.`, size: 'xs', color: COLORS.textSecondary, flex: 3 },
+      { type: 'text', text: f(p.v), size: 'sm', weight: 'bold', color: isCut ? '#94a3b8' : wqColor(P, p.v), flex: 2, align: 'end', decoration: isCut ? 'line-through' : 'none' },
+      { type: 'text', text: nb ? `ข้าง ${nb}` : ' ', size: 'xxs', color: COLORS.textMuted, flex: 4, align: 'end' },
+      { type: 'box', layout: 'vertical', flex: 2, cornerRadius: '6px', paddingAll: '4px', backgroundColor: isCut ? '#0f172a' : '#dc2626',
+        action: { type: 'message', label: isCut ? 'คืน' : 'ตัด', text: `${isCut ? 'คืนจุด' : 'ตัดจุด'} ${P.cmdWord} ${id} ${hhmm(p.ts)}${day}` },
+        contents: [{ type: 'text', text: isCut ? 'คืน' : 'ตัด', size: 'xs', color: '#ffffff', align: 'center', weight: 'bold' }] },
+    ] }; };
+  const body = [
+    ...(note ? [{ type: 'text', text: note, size: 'xs', weight: 'bold', color: '#047857', wrap: true }] : []),
+    { type: 'text', text: `ค่ากลางของวัน (median) ${f(med)} ${P.unit} · ${pts.length} จุด`, size: 'xs', color: COLORS.textSecondary, margin: note ? 'sm' : 'none', wrap: true },
+    { type: 'text', text: P.risk === 'min' ? 'จุดที่ต่ำที่สุด' : 'จุดที่สูงที่สุด', size: 'xs', weight: 'bold', margin: 'md' },
+    ...rank.map(p => row(p, false)),
+    ...(cutPts.length ? [{ type: 'text', text: `ตัดออกแล้ว (${cutPts.length})`, size: 'xs', weight: 'bold', margin: 'md', color: COLORS.textSecondary }, ...cutPts.slice(-6).map(p => row(p, true))] : []),
+    { type: 'text', text: 'ตัด = ไม่นำจุดนั้นไปคิดค่าเฉลี่ย/สูงสุด (ข้อมูลดิบยังอยู่ · คืนได้) · "ข้าง" = ค่าจุดก่อน/หลัง', size: 'xxs', color: COLORS.textMuted, wrap: true, margin: 'md' },
+  ];
+  return lineReply(replyToken, withQuickReply([{ type: 'flex', altText: `ตรวจจุด${P.short} ${TUR_STATIONS[id][0]}`,
+    contents: { type: 'bubble', size: 'mega',
+      header: turHeader(`✂️ ตรวจจุด${P.short}`, `${wqShort(TUR_STATIONS[id][0])} · ${dayOffset < 0 ? `${R.label} (ทั้งวัน)` : `${R.label} · 0.00–${thaiTime()} น.`}`),
+      body: { type: 'box', layout: 'vertical', paddingAll: '10px', contents: body },
+      footer: { type: 'box', layout: 'vertical', paddingAll: '6px', contents: [
+        { type: 'button', style: 'primary', height: 'sm', color: '#0f172a', action: { type: 'message', label: `↩ กลับภาพรวม${P.short}`, text: dayOffset < 0 ? P.yCmd : P.cmd } } ] } } }]));
+}
+
+// "ตัดจุด ขุ่น ลาดกระบัง 01:30 [เมื่อวาน]" · ไม่ระบุเวลา = จุดสูงสุด (คลอรีน = ต่ำสุด) · "คืนจุด …" ไม่ระบุเวลา = คืนทั้งหมดของวันนั้น
+async function handlePointCmd(replyToken, userId, msg) {
+  const m = msg.trim().match(/^(ตรวจจุด|ตัดจุด|ตัดสูงสุด|คืนจุด)\s+(คลอรีน|frc|ขุ่น|ความขุ่น|ec|ความนำไฟฟ้า)\s+(\S+)\s*(\d{1,2}[:.]\d{2})?\s*(เมื่อวาน)?\s*$/i);
+  if (!m) return false;
+  const [, cmd, pw, q, tm, yd] = m, pk = wqParamOf(pw), P = WQP[pk], d = yd ? -1 : 0;
+  const hits = wqFindStation(q);
+  if (hits.length !== 1) {   // หลายสถานี → ปุ่มให้เลือก
+    const msg0 = { type: 'text', text: hits.length ? `พบ ${hits.length} สถานี เลือกสถานีที่ต้องการ:\n${hits.slice(0, 8).map(id => `• ${TUR_STATIONS[id][0]} (${id})`).join('\n')}` : `ไม่พบสถานี "${q}"` };
+    if (hits.length) msg0.quickReply = { items: hits.slice(0, 13).map(id => ({ type: 'action', action: { type: 'message', label: wqShort(TUR_STATIONS[id][0]).replace(/^สถานีสูบจ่ายน้ำ/, 'สจ.').slice(0, 20), text: `${cmd} ${pw} ${id}${tm ? ' ' + tm : ''}${yd ? ' เมื่อวาน' : ''}` } })) };
+    await lineReply(replyToken, [msg0]); return true; }
+  const id = hits[0];
+  if (cmd === 'ตรวจจุด') { await replyInspectPoints(replyToken, pk, id, d); return true; }
+  if (!wqCanEdit(userId)) { await lineReply(replyToken, [{ type: 'text', text: '⛔ ไม่มีสิทธิ์ตัด/คืนจุดข้อมูล' }]); return true; }
+  const R = wqRange(d), pts = await loadRawPoints(P, id, R.start, R.end), ref = db.ref(`wq_ptex/${pk}/${id}`);
+  const px = ((await getWqPtEx())[pk] || {})[id] || {};
+  let target = null;
+  if (tm) {
+    const [h, mi] = tm.split(/[:.]/).map(Number), want = R.start + (h * 60 + mi) * 60000;
+    target = pts.reduce((b, p) => (!b || Math.abs(p.ts - want) < Math.abs(b.ts - want)) ? p : b, null);
+    if (target && Math.abs(target.ts - want) > 10 * 60000) target = null;
+  }
+  if (cmd === 'คืนจุด') {
+    if (tm && !target) { await lineReply(replyToken, [{ type: 'text', text: `ไม่พบจุดเวลา ${tm} น.` }]); return true; }
+    const keys = tm ? [target.k] : pts.filter(p => px[p.k]).map(p => p.k);
+    await Promise.all(keys.map(k => ref.child(k).remove()));
+    wqResetCache();
+    await replyInspectPoints(replyToken, pk, id, d, `✅ คืน ${keys.length} จุดกลับเข้าการคำนวณแล้ว`); return true;
+  }
+  if (!tm) { const live = pts.filter(p => !px[p.k]); target = live.reduce((b, p) => !b || (P.risk === 'min' ? p.v < b.v : p.v > b.v) ? p : b, null); }
+  if (!target) { await lineReply(replyToken, [{ type: 'text', text: tm ? `ไม่พบจุดข้อมูลใกล้เวลา ${tm} น. (±10 นาที)` : 'ไม่พบจุดข้อมูล' }]); return true; }
+  await ref.child(target.k).set({ v: target.v, by: userId || '', t: Date.now() });
+  wqResetCache();
+  console.log(`[WQ] ตัดจุด ${pk} ${id} ${hhmm(target.ts)} = ${target.v} by ${userId}`);
+  await replyInspectPoints(replyToken, pk, id, d, `✂️ ตัดจุด ${hhmm(target.ts)} น. (${wqFmt(P, target.v)} ${P.unit}) แล้ว — การ์ดสรุปและรายงานเว็บใช้ค่าใหม่ทันที`);
+  return true;
+}
+
+// ── เช็คค่าเกินเกณฑ์ทั้งระบบ → เลือกตัดทั้งชั่วโมง ─────────────────────────────
+// ชั่วโมงแบบท้ายชั่วโมง: ชม. H = (H-1:00, H:00]  เช่น "02:00" = 01:00–02:00 น.
+const wqPtBad = (P, v) => P.key === 'tub' ? v > 4 : P.key === 'ec' ? v > 500 : (v < 0.2 || v > 2);
+const wqHourOf = (start, ts) => Math.ceil((ts - start) / 3600e3);
+const hLabel = H => `${String(H - 1).padStart(2, '0')}:00–${String(H).padStart(2, '0')}:00`;
+
+async function replyExceedList(replyToken, pk, dayOffset = 0, note = '') {
+  const P = WQP[pk], R = wqRange(dayOffset), f = v => wqFmt(P, v), day = dayOffset < 0 ? ' เมื่อวาน' : '';
+  const EX = (await getWqExclude())[pk] || {}, PXA = (await getWqPtEx())[pk] || {};
+  const rows = [], cutRows = [];
+  await Promise.all(Object.keys(TUR_STATIONS).filter(id => !EX[id]).map(async id => {
+    const pts = await loadRawPoints(P, id, R.start, R.end), px = PXA[id] || {}, hb = {};
+    pts.forEach(p => { const H = wqHourOf(R.start, p.ts); (hb[H] = hb[H] || { live: [], cut: [] })[px[p.k] ? 'cut' : 'live'].push(p.v); });
+    Object.entries(hb).forEach(([H, b]) => {
+      const bad = b.live.filter(v => wqPtBad(P, v));
+      if (bad.length) rows.push({ id, H: +H, n: bad.length, tot: b.live.length, worst: P.risk === 'min' ? Math.min(...bad) : Math.max(...bad) });
+      if (b.cut.length) cutRows.push({ id, H: +H, n: b.cut.length });
+    });
+  }));
+  rows.sort((a, b) => P.risk === 'min' ? a.worst - b.worst : b.worst - a.worst);
+  const name = id => wqShort(TUR_STATIONS[id][0]).replace(/^สถานีสูบจ่ายน้ำ/, 'สจ.').replace(/^สำนักงานประปาสาขา/, 'สาขา');
+  const btn = (label, text, col) => ({ type: 'box', layout: 'vertical', flex: 0, width: '46px', cornerRadius: '6px', paddingAll: '4px', backgroundColor: col,
+    action: { type: 'message', label, text }, contents: [{ type: 'text', text: label, size: 'xxs', color: '#ffffff', align: 'center', weight: 'bold' }] });
+  const line = r => ({ type: 'box', layout: 'horizontal', spacing: 'sm', paddingAll: '5px', cornerRadius: '6px', backgroundColor: '#ffffff', margin: 'xs', alignItems: 'center', contents: [
+    { type: 'box', layout: 'vertical', flex: 6, action: { type: 'message', label: 'ตรวจจุด', text: `ตรวจจุด ${P.cmdWord} ${r.id}${day}` }, contents: [
+      { type: 'text', text: name(r.id), size: 'xs', color: COLORS.textPrimary, wrap: true },
+      { type: 'text', text: `${hLabel(r.H)} น. · เกิน ${r.n}/${r.tot} จุด`, size: 'xxs', color: COLORS.textMuted } ] },
+    { type: 'text', text: f(r.worst), size: 'sm', weight: 'bold', color: wqColor(P, r.worst), flex: 2, align: 'end', gravity: 'center' },
+    btn('ตัด ชม.', `ตัดชม ${P.cmdWord} ${r.id} ${String(r.H).padStart(2, '0')}:00${day}`, '#dc2626') ] });
+  const cutLine = r => ({ type: 'box', layout: 'horizontal', spacing: 'sm', paddingAll: '5px', cornerRadius: '6px', backgroundColor: '#f1f5f9', margin: 'xs', alignItems: 'center', contents: [
+    { type: 'text', text: `${name(r.id)} · ${hLabel(r.H)} น. (${r.n} จุด)`, size: 'xxs', color: '#64748b', flex: 8, wrap: true, decoration: 'line-through' },
+    btn('คืน', `คืนชม ${P.cmdWord} ${r.id} ${String(r.H).padStart(2, '0')}:00${day}`, '#0f172a') ] });
+  const crit = P.key === 'tub' ? '> 4 NTU' : P.key === 'ec' ? '> 500 µS/cm' : 'นอก 0.2–2.0 mg/L';
+  const body = [
+    ...(note ? [{ type: 'text', text: note, size: 'xs', weight: 'bold', color: '#047857', wrap: true }] : []),
+    { type: 'text', text: rows.length ? `พบ ${rows.length} ชั่วโมงที่มีค่า${crit}` : `✅ ไม่มีชั่วโมงใดที่ค่า${crit}`, size: 'sm', weight: 'bold', color: rows.length ? COLORS.bad : COLORS.good, margin: note ? 'sm' : 'none', wrap: true },
+    ...rows.slice(0, 12).map(line),
+    ...(rows.length > 12 ? [{ type: 'text', text: `… และอีก ${rows.length - 12} รายการ (ตัดรายการบนก่อน แล้วเรียกใหม่)`, size: 'xxs', color: COLORS.textMuted, margin: 'xs' }] : []),
+    ...(cutRows.length ? [{ type: 'text', text: `ตัดออกแล้ว (${cutRows.length})`, size: 'xs', weight: 'bold', color: COLORS.textSecondary, margin: 'md' }, ...cutRows.slice(0, 8).map(cutLine)] : []),
+    { type: 'text', text: 'แตะชื่อสถานี = ดูรายจุด · ตัด ชม. = ไม่นำทุกจุดในชั่วโมงนั้นไปคิด (ข้อมูลดิบยังอยู่ · คืนได้)', size: 'xxs', color: COLORS.textMuted, wrap: true, margin: 'md' },
+  ];
+  return lineReply(replyToken, withQuickReply([{ type: 'flex', altText: `เช็คค่าเกินเกณฑ์${P.short} — ${rows.length} ชั่วโมง`,
+    contents: { type: 'bubble', size: 'mega',
+      header: turHeader(`🔎 เช็คค่าเกินเกณฑ์ — ${P.short}`, dayOffset < 0 ? `${R.label} (ทั้งวัน)` : `${R.label} · 0.00–${thaiTime()} น.`),
+      body: { type: 'box', layout: 'vertical', paddingAll: '10px', backgroundColor: '#f8fafc', contents: body },
+      footer: { type: 'box', layout: 'vertical', paddingAll: '6px', contents: [
+        { type: 'button', style: 'primary', height: 'sm', color: '#0f172a', action: { type: 'message', label: `↩ กลับภาพรวม${P.short}`, text: dayOffset < 0 ? P.yCmd : P.cmd } } ] } } }]));
+}
+
+// "เช็คเกิน [ขุ่น|คลอรีน|ec] [เมื่อวาน]" · "ตัดชม ขุ่น SW06 02:00 [เมื่อวาน]" · "คืนชม ขุ่น SW06 02:00"
+async function handleHourCmd(replyToken, userId, msg) {
+  const t = msg.trim();
+  let m = t.match(/^(เช็คเกิน|เช็กเกิน|ตรวจเกิน|เกินเกณฑ์|เกิน4)\s*(คลอรีน|frc|ขุ่น|ความขุ่น|ec|ความนำไฟฟ้า)?\s*(เมื่อวาน)?$/i);
+  if (m) { await replyExceedList(replyToken, m[2] ? wqParamOf(m[2]) : 'tub', m[3] ? -1 : 0); return true; }
+  m = t.match(/^(ตัดชม|คืนชม)\.?\s+(คลอรีน|frc|ขุ่น|ความขุ่น|ec|ความนำไฟฟ้า)\s+(\S+)\s+(\d{1,2})[:.]00\s*(เมื่อวาน)?$/i);
+  if (!m) return false;
+  const [, cmd, pw, q, hs, yd] = m, pk = wqParamOf(pw), P = WQP[pk], d = yd ? -1 : 0, H = Number(hs);
+  if (!wqCanEdit(userId)) { await lineReply(replyToken, [{ type: 'text', text: '⛔ ไม่มีสิทธิ์ตัด/คืนข้อมูล' }]); return true; }
+  const hits = wqFindStation(q);
+  if (hits.length !== 1 || H < 1 || H > 24) { await lineReply(replyToken, [{ type: 'text', text: 'ระบุสถานี (รหัส เช่น SW06) และชั่วโมง 01:00–24:00 ให้ถูกต้อง' }]); return true; }
+  const id = hits[0], R = wqRange(d), ref = db.ref(`wq_ptex/${pk}/${id}`);
+  const pts = (await loadRawPoints(P, id, R.start, R.end)).filter(p => wqHourOf(R.start, p.ts) === H);
+  if (cmd === 'ตัดชม') await Promise.all(pts.map(p => ref.child(p.k).set({ v: p.v, by: userId || '', t: Date.now(), hour: H })));
+  else await Promise.all(pts.map(p => ref.child(p.k).remove()));
+  wqResetCache();
+  console.log(`[WQ] ${cmd} ${pk} ${id} ${hLabel(H)} (${pts.length} จุด) by ${userId}`);
+  await replyExceedList(replyToken, pk, d, `${cmd === 'ตัดชม' ? '✂️ ตัด' : '✅ คืน'} ${TUR_STATIONS[id][0]} ชม. ${hLabel(H)} น. (${pts.length} จุด) แล้ว`);
+  return true;
+}
+
 async function replyParamRegion(replyToken, pk, idx, dayOffset = 0) {
   const P = WQP[pk];
   try {
@@ -1932,7 +2103,8 @@ async function replyParamRegion(replyToken, pk, idx, dayOffset = 0) {
       { type: 'text', text: RL, size: 'xxs', color: COLORS.textMuted, flex: 2, align: 'end' } ] };
     const stRow = id => { const d = S[id], rv = wqRiskVal(P, d);
       return { type: 'box', layout: 'horizontal', paddingTop: '3px', paddingBottom: '3px', contents: [
-        { type: 'text', text: `${wqDot(P, d && d.avg)} ${TUR_STATIONS[id][0]}`, size: 'xs', color: COLORS.textPrimary, flex: 6, wrap: true },
+        { type: 'text', text: `${wqDot(P, d && d.avg)} ${TUR_STATIONS[id][0]}${d && d.cut ? ` ✂️${d.cut}` : ''}`, size: 'xs', color: COLORS.textPrimary, flex: 6, wrap: true,
+          action: { type: 'message', label: 'ตรวจจุด', text: `ตรวจจุด ${P.cmdWord} ${id}${dayOffset < 0 ? ' เมื่อวาน' : ''}` } },
         { type: 'text', text: d ? f(d.avg) : '–', size: 'xs', weight: 'bold', color: wqColor(P, d && d.avg), flex: 2, align: 'end', gravity: 'center' },
         { type: 'text', text: d ? f(rv) : '–', size: 'xs', weight: 'bold', color: wqColor(P, rv), flex: 2, align: 'end', gravity: 'center' },
       ] }; };
