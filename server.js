@@ -3519,13 +3519,65 @@ async function fetchAndSaveMkData() {
   } catch (e) { console.error('[MK] ❌ fetch error:', e.message); }
 }
 
+// ── 2c. [พ.ย.69] น้ำดิบจาก RWC web service — แหล่งหลักแทน bigdata (2a/2b) ─────────
+// เหตุผล: bigdata เจ้าพระยาให้ค่ารายชั่วโมงและช้ากว่า, bigdata แม่กลองหยุดส่งตั้งแต่ 24 ต.ค. 69
+//         และไม่เคยมี S12/S13 — RWC อัปเดตทุก 10 นาที มีครบทั้งสองฝั่ง
+// บันทึก node/รูปแบบเดิมทุกอย่าง → FRCContour / War Room ไม่ต้องแก้
+//   history/raw_{sid}/{ts}   = { ec, temp, ts }      (เจ้าพระยา/คลองตะวันออก)
+//   history/rawmk_{sid}/{ts} = { ec, ts }            (แม่กลอง/คลองตะวันตก)
+//   rawmk/{sid}              = ค่าปัจจุบัน (รูปแบบเดิม)
+// history บันทึกชั่วโมงละ 1 จุด (จุดแรกที่เห็นในชั่วโมงใหม่) — ขนาด history เท่าเดิม
+//   ไม่ทำให้ FRCContour (ซึ่งโหลด history ทั้ง node) หนักขึ้น
+// ถ้า RWC ล่ม → ถอยไปใช้ bigdata (2a/2b) รอบนั้น
+const RWC_ALL_URL = 'http://rwc.mwa.co.th/webservice/wqc_mwa_all.php';
+const RWC_CP_IDS = ['S1','S6','S7','S8','S21','T1','T2','T3','T4'];   // → raw_{sid}
+const RWC_MK_IDS = ['S11','S12','S13','S9','S16','T5'];              // → rawmk_{sid}  (S12 = บางเลน กม.35 ตัวแทนตะวันตก)
+const _rwcNum = v => { const x = _num(v); return x == null || x <= -999 || x === 0 ? null : x; };
+const _hourOf = ts => Math.floor(ts / 3600000);
+async function collectRawRwc() {
+  let arr;
+  try {
+    const res = await axios.get(RWC_ALL_URL, { timeout: 20000 });
+    arr = res.data;
+    if (!Array.isArray(arr) || !arr.length) throw new Error('ไม่ได้ส่ง array');
+  } catch (e) {
+    console.error('[RWC] ❌ error:', e.message, '→ ใช้ bigdata แทนรอบนี้');
+    await collectRawChaoPhraya();
+    await fetchAndSaveMkData();
+    return;
+  }
+  try {
+    const updates = {}; const saved = [];
+    for (const r of arr) {
+      const sid = r.stn_id;
+      const isCp = RWC_CP_IDS.includes(sid), isMk = RWC_MK_IDS.includes(sid);
+      if (!isCp && !isMk) continue;
+      const ts = parseThaiTime(`${r.date} ${r.time}`), ec = _rwcNum(r.conducted);
+      if (!_okTs(ts) || ec == null) continue;
+      const temp = _rwcNum(r.temp);
+      if (isMk) {
+        updates[`rawmk/${sid}`] = {
+          ec, temp: temp || 0, ph: _rwcNum(r.ph) || 0, turbid: _rwcNum(r.Turbid) || 0,
+          deo: _rwcNum(r.deo) || 0, salinity: _rwcNum(r.salinity) || 0, tds: _rwcNum(r.tds) || 0,
+          time: `${r.date}T${r.time}`, ts,
+        };
+      }
+      const k = 'rwc_' + sid;
+      if (_lastRawTs[k] != null && _hourOf(_lastRawTs[k]) === _hourOf(ts)) continue;   // ชั่วโมงนี้บันทึกแล้ว
+      updates[isCp ? `history/raw_${sid}/${ts}` : `history/rawmk_${sid}/${ts}`] = isCp ? { ec, temp, ts } : { ec, ts };
+      _lastRawTs[k] = ts; saved.push(`${sid}=${ec}`);
+    }
+    if (Object.keys(updates).length) await db.ref().update(updates);
+    if (saved.length) console.log(`[RWC] บันทึก ${saved.length} สถานี: ${saved.join(' ')}`);
+  } catch (e) { console.error('[RWC] ❌ save error:', e.message); }
+}
+
 // รันทันทีตอน start แล้วตามรอบ — เช็คถี่กว่ารอบอัปเดตของแหล่ง จะได้ไม่พลาดรอบ (บันทึกเฉพาะรอบใหม่อยู่แล้ว)
 collectTwqms();
-collectRawChaoPhraya();
-fetchAndSaveMkData();
-cron.schedule('*/5 * * * *',  collectTwqms,         { timezone: 'Asia/Bangkok' });
-cron.schedule('*/10 * * * *', collectRawChaoPhraya, { timezone: 'Asia/Bangkok' });
-cron.schedule('*/10 * * * *', fetchAndSaveMkData,   { timezone: 'Asia/Bangkok' });
+collectRawRwc();
+cron.schedule('*/5 * * * *',  collectTwqms,  { timezone: 'Asia/Bangkok' });
+cron.schedule('*/10 * * * *', collectRawRwc, { timezone: 'Asia/Bangkok' });
+// เดิม: 2a/2b ดึง bigdata ทุก 10 นาที — ตอนนี้เป็นตัวสำรอง เรียกเมื่อ RWC ล่มเท่านั้น
 // ── ⚡ EC Forecast (XGBoost) — พยากรณ์ EC ล่วงหน้า 24/48 ชม. ทุกชั่วโมง ──────
 // รัน predict_ec.py → ดึง TWQMS ล่าสุด → เขียน /forecast/ec/{station} ใน Firebase
 function runECForecast() {
