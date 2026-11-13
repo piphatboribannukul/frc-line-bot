@@ -3553,7 +3553,8 @@ async function collectRawRwc() {
       const isCp = RWC_CP_IDS.includes(sid), isMk = RWC_MK_IDS.includes(sid);
       if (!isCp && !isMk) continue;
       const ts = parseThaiTime(`${r.date} ${r.time}`), ec = _rwcNum(r.conducted);
-      if (!_okTs(ts) || ec == null) continue;
+      // [v46 · 14 พ.ย.69] ข้ามค่าผิดปกติ (< 100 µS/cm เช่น บางเลน S12 ค้างที่ 50 ตั้งแต่ 11 พ.ย.) — ไม่บันทึกทั้งค่าปัจจุบันและประวัติ
+      if (!_okTs(ts) || ec == null || ec < 100) continue;
       const temp = _rwcNum(r.temp);
       if (isMk) {
         updates[`rawmk/${sid}`] = {
